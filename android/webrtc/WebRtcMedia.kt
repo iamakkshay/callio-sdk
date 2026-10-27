@@ -56,7 +56,13 @@ internal class WebRtcMedia(context: Context, session: Session, private val force
             bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE
         }
         pc = factory.createPeerConnection(cfg, Observer())!!
-        val source = factory.createAudioSource(MediaConstraints())
+        // Voice processing on the microphone: echo cancellation, noise suppression, steady volume, and a
+        // high-pass filter for rumble (on top of the phone's own hardware echo canceller and noise suppressor).
+        val voice = MediaConstraints().apply {
+            listOf("googEchoCancellation", "googNoiseSuppression", "googAutoGainControl", "googHighpassFilter")
+                .forEach { mandatory.add(MediaConstraints.KeyValuePair(it, "true")) }
+        }
+        val source = factory.createAudioSource(voice)
         audioTrack = factory.createAudioTrack("audio0", source)
         pc.addTrack(audioTrack, listOf("stream0"))
     }
@@ -67,7 +73,7 @@ internal class WebRtcMedia(context: Context, session: Session, private val force
         setLocal(offer)
         gatherIce()
         startStats()
-        return pc.localDescription?.description ?: offer.description
+        return tuneOpus(pc.localDescription?.description ?: offer.description)
     }
 
     suspend fun setAnswer(sdp: String) =
@@ -85,7 +91,7 @@ internal class WebRtcMedia(context: Context, session: Session, private val force
             pc.addIceCandidate(IceCandidate(m, 0, line.removePrefix("a=")))   // fix #1
         }
         startStats()
-        return pc.localDescription?.description ?: answer.description
+        return tuneOpus(pc.localDescription?.description ?: answer.description)
     }
 
     fun setMuted(muted: Boolean) { audioTrack.setEnabled(!muted) }
@@ -182,6 +188,21 @@ internal class WebRtcMedia(context: Context, session: Session, private val force
     }
 
     companion object {
+        /** Ask the other side's Opus encoder for in-band error correction (masks lost packets), mono, and a voice bitrate. */
+        fun tuneOpus(sdp: String): String {
+            val m = Regex("a=rtpmap:(\\d+) opus/48000[^\r\n]*", RegexOption.IGNORE_CASE).find(sdp) ?: return sdp
+            val pt = m.groupValues[1]
+            val want = linkedMapOf("useinbandfec" to "1", "stereo" to "0", "sprop-stereo" to "0", "maxaveragebitrate" to "32000")
+            val fmtp = Regex("a=fmtp:$pt ([^\r\n]*)")
+            fmtp.find(sdp)?.let { f ->
+                val kv = LinkedHashMap<String, String>()
+                f.groupValues[1].split(';').filter { it.isNotBlank() }.forEach { p -> val (k, v) = (p.trim().split('=', limit = 2) + "").take(2); kv[k] = v }
+                kv.putAll(want)
+                return sdp.replaceRange(f.range, "a=fmtp:$pt " + kv.entries.joinToString(";") { "${it.key}=${it.value}" })
+            }
+            return sdp.replaceRange(m.range, m.value + "\r\na=fmtp:$pt " + want.entries.joinToString(";") { "${it.key}=${it.value}" })
+        }
+
         private val initialized = java.util.concurrent.atomic.AtomicBoolean(false)
 
         /** Expand a bare TURN URL to UDP/TCP/TLS (fix #3). */
