@@ -42,6 +42,12 @@ protocol SIPTransportEvents: AnyObject {
     func transport(messageFrom sipUser: String, text: String?, location: SharedLocation?, messageId: String)
     func transport(messageStatusDidChange messageId: String, status: MessageStatus)
     func transport(didFail error: InCallError)
+    /// An invitation into a 3-way call (room = the conference to dial); `move` = follow the current call there.
+    func transport(conferenceInviteFrom sipUser: String, room: String, move: Bool, with: [String])
+}
+
+extension SIPTransportEvents {
+    func transport(conferenceInviteFrom sipUser: String, room: String, move: Bool, with: [String]) {}
 }
 
 /// Placeholder transport. It drives the client's control flow so the public API is exercisable in

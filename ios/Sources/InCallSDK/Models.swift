@@ -70,6 +70,13 @@ public struct SharedLocation: Codable, Sendable, Equatable {
     public let label: String
 }
 
+/// Someone invites this user into a 3-way call. Join with `InCallClient.joinConference(_:)`.
+public struct ConferenceInvite: Sendable, Equatable {
+    public let room: String
+    public let from: Contact
+    public let with: [String]
+}
+
 public struct Message: Sendable, Equatable, Identifiable {
     public let id: String
     public let from: MessageSender

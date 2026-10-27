@@ -51,7 +51,13 @@ final class WebRTCMedia: NSObject {
 
         let noConstraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
         pc = WebRTCMedia.factory.peerConnection(with: cfg, constraints: noConstraints, delegate: nil)!
-        let source = WebRTCMedia.factory.audioSource(with: noConstraints)
+        // Voice processing on the microphone: echo cancellation, noise suppression, steady volume and a high-pass
+        // filter for rumble (alongside iOS's own voice-processing audio unit).
+        let voice = RTCMediaConstraints(mandatoryConstraints: [
+            "googEchoCancellation": "true", "googNoiseSuppression": "true",
+            "googAutoGainControl": "true", "googHighpassFilter": "true",
+        ], optionalConstraints: nil)
+        let source = WebRTCMedia.factory.audioSource(with: voice)
         audioTrack = WebRTCMedia.factory.audioTrack(with: source, trackId: "audio0")
         super.init()
         pc.add(audioTrack, streamIds: ["stream0"])
@@ -65,7 +71,7 @@ final class WebRTCMedia: NSObject {
         try await withChecked { self.pc.setLocalDescription(offer, completionHandler: $0) }
         await gatherICE()
         startStats()
-        return pc.localDescription?.sdp ?? offer.sdp
+        return WebRTCMedia.tuneOpus(pc.localDescription?.sdp ?? offer.sdp)
     }
 
     func setAnswer(_ sdp: String) async throws {
@@ -86,13 +92,33 @@ final class WebRTCMedia: NSObject {
             try await pc.add(RTCIceCandidate(sdp: String(h.line.dropFirst(2)), sdpMLineIndex: 0, sdpMid: h.mid))
         }
         startStats()
-        return pc.localDescription?.sdp ?? answer.sdp
+        return WebRTCMedia.tuneOpus(pc.localDescription?.sdp ?? answer.sdp)
+    }
+
+    // MARK: - Hold / resume: renegotiate from the live connection
+
+    /// Answer the other side's re-offer (hold or resume) from the live connection, so the SDP matches what WebRTC expects.
+    func reAnswer(_ offerSdp: String) async throws -> String {
+        try await withChecked { self.pc.setRemoteDescription(RTCSessionDescription(type: .offer, sdp: offerSdp), completionHandler: $0) }
+        let answer = try await withChecked { self.pc.answer(for: self.recvAudio, completionHandler: $0) }
+        try await withChecked { self.pc.setLocalDescription(answer, completionHandler: $0) }
+        return WebRTCMedia.tuneOpus(pc.localDescription?.sdp ?? answer.sdp)
+    }
+
+    /// Our own re-offer to hold (send only) or resume (send and receive). Apply the reply with `setAnswer`.
+    func reOffer(held: Bool) async throws -> String {
+        for t in pc.transceivers where t.mediaType == .audio {
+            t.setDirection(held ? .sendOnly : .sendRecv, error: nil)
+        }
+        let offer = try await withChecked { self.pc.offer(for: self.recvAudio, completionHandler: $0) }
+        try await withChecked { self.pc.setLocalDescription(offer, completionHandler: $0) }
+        return WebRTCMedia.tuneOpus(pc.localDescription?.sdp ?? offer.sdp)
     }
 
     // MARK: - Controls
 
     func setMuted(_ muted: Bool) { audioTrack.isEnabled = !muted }
-    // A minimal hold: stop sending audio. True SIP hold re-INVITEs with a=sendonly/inactive — TODO.
+    /// Stop sending our audio while on hold (the re-offer tells the other side; see `reOffer`).
     func setHold(_ held: Bool) { audioTrack.isEnabled = !held }
 
     func close() {
@@ -100,13 +126,13 @@ final class WebRTCMedia: NSObject {
         pc.close()
     }
 
-    // MARK: - fix #2: gather to a relay candidate (or complete, or a 4s cap), no trickle over SIP
+    // MARK: - fix #2: gather to a relay candidate (or complete, or a 2.5 s cap: an unreachable TURN server mustn't hold the call up)
 
     private func gatherICE() async {
         if pc.iceGatheringState == .complete || gatherDone { return }
         await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
             gatherCont = cont
-            DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) { [weak self] in self?.finishGather() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in self?.finishGather() }
         }
     }
     private func finishGather() {
@@ -154,6 +180,25 @@ final class WebRTCMedia: NSObject {
     }
 
     // MARK: - fix #3 + #1 helpers (ports of ice.js)
+
+    /// Ask the other side's Opus encoder for in-band error correction (masks lost packets), mono, and a voice bitrate.
+    static func tuneOpus(_ sdp: String) -> String {
+        let ns = sdp as NSString
+        guard let rtp = try? NSRegularExpression(pattern: "a=rtpmap:(\\d+) opus/48000[^\\r\\n]*", options: .caseInsensitive),
+              let m = rtp.firstMatch(in: sdp, range: NSRange(location: 0, length: ns.length)) else { return sdp }
+        let pt = ns.substring(with: m.range(at: 1))
+        let want: [(String, String)] = [("useinbandfec", "1"), ("stereo", "0"), ("sprop-stereo", "0"), ("maxaveragebitrate", "32000")]
+        if let fmtpRe = try? NSRegularExpression(pattern: "a=fmtp:\(pt) ([^\\r\\n]*)"),
+           let f = fmtpRe.firstMatch(in: sdp, range: NSRange(location: 0, length: ns.length)) {
+            var kv: [(String, String)] = ns.substring(with: f.range(at: 1)).split(separator: ";").compactMap { p in
+                let parts = p.trimmingCharacters(in: .whitespaces).split(separator: "=", maxSplits: 1).map(String.init)
+                return parts.isEmpty ? nil : (parts[0], parts.count > 1 ? parts[1] : "")
+            }
+            for (k, v) in want { if let i = kv.firstIndex(where: { $0.0 == k }) { kv[i].1 = v } else { kv.append((k, v)) } }
+            return ns.replacingCharacters(in: f.range, with: "a=fmtp:\(pt) " + kv.map { "\($0.0)=\($0.1)" }.joined(separator: ";"))
+        }
+        return ns.replacingCharacters(in: m.range, with: ns.substring(with: m.range) + "\r\na=fmtp:\(pt) " + want.map { "\($0.0)=\($0.1)" }.joined(separator: ";"))
+    }
 
     /// Expand a bare TURN URL to UDP/TCP/TLS so ICE can pick what the network allows.
     static func turnUrls(_ url: String) -> [String] {

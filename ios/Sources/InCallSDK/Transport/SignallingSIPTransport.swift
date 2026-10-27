@@ -22,6 +22,7 @@ final class SignallingSIPTransport: SIPTransport {
     private func onMain(_ block: @escaping () -> Void) { Task { @MainActor in block() } }
 
     private var forceRelay = false
+    private var answering = false
 
     func register(session: Session, forceRelay: Bool) async throws {
         onMain { self.events?.transport(registrationDidChange: .connecting) }
@@ -44,6 +45,12 @@ final class SignallingSIPTransport: SIPTransport {
             let id = self?.currentCallId ?? ""
             self?.onMain { self?.events?.transport(callDidChange: held ? .onHold : .connected, callId: id) }
         }
+        #if canImport(WebRTC)
+        c.onReOffer = { [weak self] offer in
+            guard let m = self?.media else { throw InCallError.mediaFailed("no call") }
+            return try await m.reAnswer(offer)   // hold/resume answered from the live connection
+        }
+        #endif
         c.onCancel = { [weak self] callId in
             self?.pendingOffer = nil
             self?.onMain { self?.events?.transport(callDidChange: .ended(.missed), callId: callId) }
@@ -91,6 +98,12 @@ final class SignallingSIPTransport: SIPTransport {
                 let loc = SharedLocation(lat: lat, lng: lng, label: l["label"] as? String ?? "Shared location")
                 onMain { self.events?.transport(messageFrom: fromSip, text: nil, location: loc, messageId: key) }
             }
+        case "conf":   // an invitation into a 3-way call (same JSON the web client sends)
+            if let room = obj["room"] as? String, room.range(of: "^cf-[0-9a-f]{12}$", options: .regularExpression) != nil {
+                let with = (obj["with"] as? [String]) ?? []
+                let move = (obj["move"] as? Bool) ?? false
+                onMain { self.events?.transport(conferenceInviteFrom: fromSip, room: room, move: move, with: with) }
+            }
         default: break   // typing / read receipts: wire through as needed
         }
     }
@@ -115,6 +128,11 @@ final class SignallingSIPTransport: SIPTransport {
                 try await m.setAnswer(answerSdp)
                 self?.onMain { self?.events?.transport(callDidChange: .connected, callId: id) }
             } catch {
+                // Answered, but our media couldn't start: hang up, or the other side stays in the call.
+                if !(error is SipWsClient.InviteFailed) {
+                    await c.bye()
+                    self?.onMain { self?.events?.transport(didFail: error as? InCallError ?? .mediaFailed("\(error)")) }
+                }
                 m.close(); if self?.media === m { self?.media = nil }
                 let reason: CallEndReason
                 switch (error as? SipWsClient.InviteFailed)?.status {
@@ -131,17 +149,33 @@ final class SignallingSIPTransport: SIPTransport {
     }
 
     func answer() async throws {
+        if answering { return }   // answering takes a moment; ignore a second tap
+        answering = true
+        defer { answering = false }
         guard let c = client, let s = session, let offer = pendingOffer else { throw InCallError.notRegistered }
         let m = WebRTCMedia(session: s, forceRelay: forceRelay); media = m
         m.onQuality = { [weak self] q in self?.onMain { self?.events?.transport(qualityDidUpdate: q, callId: self?.currentCallId ?? "") } }
-        let answerSdp = try await m.acceptOffer(offer)        // fix #1: strip + re-add candidates
+        let answerSdp: String
+        do { answerSdp = try await m.acceptOffer(offer) }   // fix #1: strip + re-add candidates
+        catch { m.close(); media = nil; await decline(); throw error }   // can't start media: refuse rather than leave it ringing
         c.answerIncoming(sdp: answerSdp)
         pendingOffer = nil
         onMain { self.events?.transport(callDidChange: .connected, callId: self.currentCallId ?? "") }
     }
 
     func setMuted(_ muted: Bool) async { media?.setMuted(muted) }
-    func setHold(_ held: Bool) async { media?.setHold(held) }
+    /// Hold: tell the other side (re-INVITE written by the WebRTC connection, a=sendonly) and stop sending our audio.
+    func setHold(_ held: Bool) async {
+        guard let m = media, let c = client else { return }
+        m.setHold(held)
+        do {
+            let offer = try await m.reOffer(held: held)
+            guard let answer = await c.reInvite(sdp: offer) else { throw InCallError.network("refused") }
+            try await m.setAnswer(answer)
+        } catch {
+            onMain { self.events?.transport(didFail: .network(held ? "couldn't put the call on hold" : "couldn't resume the call")) }
+        }
+    }
     func sendDTMF(_ tone: String) async {}                   // TODO: RTCRtpSender.insertDtmf
     private func closeMedia() { media?.close(); media = nil }
 #else

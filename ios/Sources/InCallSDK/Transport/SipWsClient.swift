@@ -36,7 +36,7 @@ final class SipWsClient: @unchecked Sendable {
         let remoteTag: String
         let routes: [String]      // the route set, in the order Route headers are sent
         let callId: String
-        let localSdp: String      // what we last sent, re-used to answer the other side's hold/resume
+        var localSdp: String      // what we last sent, the fallback answer to the other side's hold/resume
     }
     private var dialog: Dialog?
 
@@ -54,6 +54,8 @@ final class SipWsClient: @unchecked Sendable {
     var onBye: ((_ callId: String) -> Void)?
     /// The other side put the call on hold (true) or resumed it (false).
     var onRemoteHold: ((_ held: Bool) -> Void)?
+    /// Answers the other side's re-offer (hold/resume) from the live WebRTC connection. Without it we echo our last SDP.
+    var onReOffer: ((_ offerSdp: String) async throws -> String)?
     /// The caller gave up (or the proxy timed the call out) before we answered.
     var onCancel: ((_ callId: String) -> Void)?
 
@@ -69,7 +71,7 @@ final class SipWsClient: @unchecked Sendable {
         Task { await receiveLoop(t) }
     }
 
-    func close() { task?.cancel(with: .goingAway, reason: nil); task = nil }
+    func close() { task?.cancel(with: .goingAway, reason: nil); task = nil; dialog = nil; incomingInvite = nil }
 
     // MARK: - REGISTER (with digest), FR-SDK-04 / fix #4
 
@@ -193,7 +195,7 @@ final class SipWsClient: @unchecked Sendable {
     /// Send an in-dialog request (ACK/BYE/REFER) to the remote target. ACK for a 2xx reuses the INVITE's
     /// CSeq number; BYE/REFER take a fresh one. Fire-and-forget for ACK; BYE/REFER callers await via the
     /// pending map on `cseqNum`.
-    private func sendInDialog(method: String, dialog d: Dialog, cseqNum: Int, extraHeaders: [(String, String)] = []) {
+    private func sendInDialog(method: String, dialog d: Dialog, cseqNum: Int, extraHeaders: [(String, String)] = [], body: String = "") {
         guard let t = task else { return }
         var headers: [(String, String)] = [
             ("Via", "SIP/2.0/WS \(contactHost);branch=z9hG4bK\(randToken())"),
@@ -205,8 +207,29 @@ final class SipWsClient: @unchecked Sendable {
         headers.append(("Call-ID", d.callId))
         headers.append(("CSeq", "\(cseqNum) \(method)"))
         headers.append(contentsOf: extraHeaders)
-        let raw = SipMessage.buildRequest(method: method, requestURI: d.remoteTarget, headers: headers, body: "")
+        let raw = SipMessage.buildRequest(method: method, requestURI: d.remoteTarget, headers: headers, body: body)
         t.send(.string(raw)) { _ in }
+    }
+
+    /// Re-negotiate the established call (hold or resume): send `sdp` as an in-dialog INVITE and return the other
+    /// side's answer SDP, or nil if refused or unanswered. Every final reply is ACKed.
+    func reInvite(sdp: String) async -> String? {
+        guard let d = dialog else { return nil }
+        let n = nextCseq()
+        let resp: SipMessage? = try? await withCheckedThrowingContinuation { (cont: CheckedContinuation<SipMessage, Error>) in
+            lock.lock(); pending[n] = cont; lock.unlock()
+            sendInDialog(method: "INVITE", dialog: d, cseqNum: n, extraHeaders: [
+                ("Contact", "<sip:\(cfg.sipUser)@\(contactHost);transport=ws>"),
+                ("Content-Type", "application/sdp"),
+            ], body: sdp)
+            DispatchQueue.global().asyncAfter(deadline: .now() + 8) { [weak self] in
+                self?.takePending(n)?.resume(throwing: InCallError.network("re-INVITE timeout"))
+            }
+        }
+        if resp != nil { sendInDialog(method: "ACK", dialog: d, cseqNum: n) }
+        guard let r = resp, (r.statusCode ?? 0) / 100 == 2 else { return nil }
+        dialog?.localSdp = sdp
+        return r.body
     }
 
     /// Hang up an established call: in-dialog BYE to the remote target, wait for its 200.
@@ -320,10 +343,10 @@ final class SipWsClient: @unchecked Sendable {
             respond(to: m, status: 200, reason: "OK")   // without this the sender sees the message fail
             onChatMessage?(aorUser(m.header("From")), m.body)
         case "INVITE":
-            if !tagOf(m.header("To")).isEmpty { reInvite(m); return }   // inside a call: hold or resume
+            if !tagOf(m.header("To")).isEmpty { inboundReInvite(m); return }   // inside a call: hold or resume
             let cid = m.header("Call-ID") ?? callId
             if incomingInvite?.header("Call-ID") == cid { return }   // a retransmission of the one ringing
-            if incomingInvite != nil { respond(to: m, status: 486, reason: "Busy Here"); return }   // another call is already ringing
+            if incomingInvite != nil || dialog != nil { respond(to: m, status: 486, reason: "Busy Here"); return }   // already ringing or on a call
             incomingInvite = m
             // Tell the caller we're ringing at once: the proxy gives up on a silent device after a few seconds.
             respond(to: m, status: 100, reason: "Trying")
@@ -347,20 +370,27 @@ final class SipWsClient: @unchecked Sendable {
     }
 
     /// A re-INVITE on the established call: the other side holds (a=sendonly / a=inactive) or resumes
-    /// (a=sendrecv). Answer with the SDP we already sent, its direction mirrored, so the call carries on.
-    private func reInvite(_ m: SipMessage) {
+    /// (a=sendrecv). The WebRTC connection answers it (`onReOffer`); the answer has to come from there, or the
+    /// other side can't apply it and drops the call.
+    private func inboundReInvite(_ m: SipMessage) {
         guard let d = dialog, m.header("Call-ID") == d.callId else {
             respond(to: m, status: 481, reason: "Call/Transaction Does Not Exist"); return
         }
         let offer = m.body
-        let (ours, held): (String, Bool) =
-            offer.contains("a=sendonly") ? ("a=recvonly", true) :
-            offer.contains("a=inactive") ? ("a=inactive", true) :
-            offer.contains("a=recvonly") ? ("a=sendonly", false) : ("a=sendrecv", false)
-        let answer = d.localSdp.replacingOccurrences(of: "a=(sendrecv|sendonly|recvonly|inactive)", with: ours, options: .regularExpression)
+        let held = offer.contains("a=sendonly") || offer.contains("a=inactive")
         respond(to: m, status: 100, reason: "Trying")
-        respond(to: m, status: 200, reason: "OK", sdp: answer, withDialog: true)
-        onRemoteHold?(held)
+        Task {
+            var answer: String? = nil
+            if let make = onReOffer { answer = try? await make(offer) }
+            if answer == nil {
+                let ours = offer.contains("a=sendonly") ? "a=recvonly" : offer.contains("a=inactive") ? "a=inactive" :
+                    offer.contains("a=recvonly") ? "a=sendonly" : "a=sendrecv"
+                answer = d.localSdp.replacingOccurrences(of: "a=(sendrecv|sendonly|recvonly|inactive)", with: ours, options: .regularExpression)
+            }
+            dialog?.localSdp = answer ?? d.localSdp
+            respond(to: m, status: 200, reason: "OK", sdp: answer ?? "", withDialog: true)
+            onRemoteHold?(held)
+        }
     }
 
     // MARK: - request/response plumbing (lock-guarded)

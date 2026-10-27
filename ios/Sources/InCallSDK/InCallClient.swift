@@ -18,6 +18,10 @@ public protocol InCallClientDelegate: AnyObject {
     func client(_ client: InCallClient, audioRouteDidChange route: AudioRoute)
     /// FR-SDK-05: contacts came online or went offline (sipUser → connected), while presence updates run.
     func client(_ client: InCallClient, presenceDidChange presence: [String: Bool])
+    /// Someone invites you into a 3-way call: show it, and call `joinConference(_:)` to join.
+    func client(_ client: InCallClient, didReceiveConferenceInvite invite: ConferenceInvite)
+    /// The SDK dialled into a 3-way call by itself (the person you were talking to moved the call there).
+    func client(_ client: InCallClient, conferenceDidStart call: Call)
 }
 
 public extension InCallClientDelegate {
@@ -30,6 +34,8 @@ public extension InCallClientDelegate {
     func client(_ client: InCallClient, didFail error: InCallError) {}
     func client(_ client: InCallClient, audioRouteDidChange route: AudioRoute) {}
     func client(_ client: InCallClient, presenceDidChange presence: [String: Bool]) {}
+    func client(_ client: InCallClient, didReceiveConferenceInvite invite: ConferenceInvite) {}
+    func client(_ client: InCallClient, conferenceDidStart call: Call) {}
 }
 
 /// The headless entry point (contract §3). One long-lived instance per signed-in user: it owns
@@ -191,6 +197,20 @@ public final class InCallClient {
         return t
     }
 
+    /// Join a 3-way call you were invited to. Ends the current call first if there is one. The person who added
+    /// you is already there.
+    @discardableResult
+    public func joinConference(_ invite: ConferenceInvite) async throws -> Call {
+        if let c = currentCall { await c.hangup(); try? await Task.sleep(nanoseconds: 700_000_000) }
+        return try await dialConference(invite.room)
+    }
+
+    private var pendingConference: String?
+
+    private func dialConference(_ room: String) async throws -> Call {
+        try await dial(Contact(name: room, sipUser: room, displayName: "3-way call", userType: .agent))
+    }
+
     /// Per-user call history (FR-CALL-08).
     public func callHistory(limit: Int = 50) async throws -> [HistoryEntry] {
         try await api.callHistory(limit: limit)
@@ -226,16 +246,27 @@ extension InCallClient: SIPTransportEvents {
 
     func transport(callDidChange state: CallState, callId: String) {
         guard let call = currentCall, call.id == callId else { return }
+        let previous = call.state
         call.apply(state: state)
         notify { $0.client(self, callDidChangeState: call) }
         // Mirror lifecycle to the platform for CDRs/reporting (contract §4).
         switch state {
         case .ringing:    Task { await api.emitEvent(type: "call.ringing", callId: callId, to: call.peer.sipUser) }
-        case .connected:  Task { await api.emitEvent(type: "call.connected", callId: callId, to: call.peer.sipUser) }
+        case .connected:
+            if previous != .onHold { Task { await api.emitEvent(type: "call.connected", callId: callId, to: call.peer.sipUser) } }
         case .ended(let reason):
             Task { await api.emitEvent(type: "call.ended", callId: callId, to: call.peer.sipUser,
                                        payload: ["reason": reason.rawValue, "client": Self.clientInfo]) }
             if currentCall?.id == callId { currentCall = nil }
+            // The person we were talking to moved the call into a 3-way call: follow them there.
+            if let room = pendingConference {
+                pendingConference = nil
+                Task {
+                    try? await Task.sleep(nanoseconds: 700_000_000)
+                    do { let c = try await dialConference(room); notify { $0.client(self, conferenceDidStart: c) } }
+                    catch { notify { $0.client(self, didFail: error as? InCallError ?? .network("conference")) } }
+                }
+            }
         default: break
         }
     }
@@ -261,6 +292,12 @@ extension InCallClient: SIPTransportEvents {
     }
 
     func transport(didFail error: InCallError) { notify { $0.client(self, didFail: error) } }
+
+    func transport(conferenceInviteFrom sipUser: String, room: String, move: Bool, with: [String]) {
+        if move, currentCall?.peer.sipUser == sipUser { pendingConference = room; return }   // we follow when they hang up
+        let from = (session?.peers ?? []).first { $0.sipUser == sipUser } ?? contact(forSip: sipUser)
+        notify { $0.client(self, didReceiveConferenceInvite: ConferenceInvite(room: room, from: from, with: with)) }
+    }
 }
 
 // Device facts sent with call.ended for the call-quality report by OS / app version (FR-REP-06).
