@@ -44,6 +44,8 @@ internal interface SipTransportEvents {
     fun onMessage(sipUser: String, text: String?, location: SharedLocation?, messageId: String)
     fun onMessageStatusChanged(messageId: String, status: MessageStatus)
     fun onFailure(error: InCallException)
+    /** An invitation into a 3-way call (room = the conference to dial); [move] = follow the current call there. */
+    fun onConferenceInvite(fromSip: String, room: String, move: Boolean, with: List<String>) {}
 }
 
 /**

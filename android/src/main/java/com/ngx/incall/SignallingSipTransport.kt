@@ -61,6 +61,13 @@ internal class SignallingSipTransport : SipTransport {
                 val loc = SharedLocation(l.optDouble("lat"), l.optDouble("lng"), l.optString("label", "Shared location"))
                 onMain { events?.onMessage(fromSip, null, loc, key) }
             }
+            "conf" -> {   // an invitation into a 3-way call (same JSON the web client sends)
+                val room = obj.optString("room")
+                if (Regex("^cf-[0-9a-f]{12}$").matches(room)) {
+                    val with = obj.optJSONArray("with")?.let { a -> (0 until a.length()).map { a.optString(it) } } ?: emptyList()
+                    onMain { events?.onConferenceInvite(fromSip, room, obj.optBoolean("move"), with) }
+                }
+            }
         }
     }
 

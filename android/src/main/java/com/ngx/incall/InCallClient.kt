@@ -23,6 +23,10 @@ interface InCallListener {
     fun onAudioRouteChanged(route: AudioRoute) {}
     /** FR-SDK-05: contacts came online or went offline (sipUser → connected), while presence updates run. */
     fun onPresenceChanged(presence: Map<String, Boolean>) {}
+    /** Someone invites you into a 3-way call: show it, and call [InCallClient.joinConference] to join. */
+    fun onConferenceInvite(invite: ConferenceInvite) {}
+    /** The SDK dialled into a 3-way call by itself (the person you were talking to moved the call there). */
+    fun onConferenceStarted(call: Call) {}
 }
 
 /**
@@ -156,6 +160,20 @@ class InCallClient internal constructor(
         threads.getOrPut(contact.sipUser) { ChatThread(contact, transport) }
 
     /** Per-user call history (FR-CALL-08). */
+    /**
+     * Join a 3-way call you were invited to. Ends the current call first if there is one. The person who added
+     * you is already there.
+     */
+    suspend fun joinConference(invite: ConferenceInvite): Call {
+        currentCall?.let { runCatching { it.hangup() }; kotlinx.coroutines.delay(700) }
+        return dialConference(invite.room)
+    }
+
+    private var pendingConference: String? = null
+
+    private suspend fun dialConference(room: String): Call =
+        dial(Contact(name = room, sipUser = room, displayName = "3-way call", userType = UserType.AGENT))
+
     suspend fun callHistory(limit: Int = 50): List<HistoryEntry> = api.callHistory(limit)
 
     // ---- helpers ----
@@ -191,6 +209,15 @@ class InCallClient internal constructor(
                 scope.launch { api.emitEvent("call.ended", callId, call.peer.sipUser,
                     JSONObject().put("reason", state.reason.wire).put("client", clientInfo())) }
                 if (currentCall?.id == callId) currentCall = null
+                // The person we were talking to moved the call into a 3-way call: follow them there.
+                pendingConference?.let { room ->
+                    pendingConference = null
+                    scope.launch {
+                        kotlinx.coroutines.delay(700)
+                        runCatching { dialConference(room) }.onSuccess { c -> emit { it.onConferenceStarted(c) } }
+                            .onFailure { e -> emit { it.onFailure(e as? InCallException ?: InCallException.Network(e.message ?: "conference")) } }
+                    }
+                }
             }
             else -> {}
         }
@@ -215,6 +242,13 @@ class InCallClient internal constructor(
     }
 
     override fun onFailure(error: InCallException) { emit { it.onFailure(error) } }
+
+    override fun onConferenceInvite(fromSip: String, room: String, move: Boolean, with: List<String>) {
+        if (move && currentCall?.peer?.sipUser == fromSip) { pendingConference = room; return }   // we follow when they hang up
+        val from = (session?.peers.orEmpty() + directory).firstOrNull { it.sipUser == fromSip }
+            ?: Contact(name = fromSip, sipUser = fromSip, displayName = fromSip, userType = UserType.CUSTOMER)
+        emit { it.onConferenceInvite(ConferenceInvite(room, from, with)) }
+    }
 
     private companion object {
         // The WebRTC transport lives in webrtc/, which only builds with libwebrtc, so src/main can't name it.

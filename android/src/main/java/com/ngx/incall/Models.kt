@@ -64,6 +64,9 @@ enum class MessageStatus { SENDING, SENT, DELIVERED, READ, FAILED }
 
 data class SharedLocation(val lat: Double, val lng: Double, val label: String)
 
+/** Someone invites this user into a 3-way call. Join with [InCallClient.joinConference]. */
+data class ConferenceInvite(val room: String, val from: Contact, val with: List<String>)
+
 data class Message(
     val id: String,
     val from: MessageSender,

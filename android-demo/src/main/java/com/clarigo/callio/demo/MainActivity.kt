@@ -73,11 +73,13 @@ fun DemoApp(vm: DemoViewModel = viewModel()) {
     when (val screen = s.screen) {
         Screen.SignIn -> SignInScreen(s) { server, org, user, pw -> vm.signIn(server, org, user, pw) }
         Screen.Home -> Column(Modifier.fillMaxSize()) {
+            ConferenceInviteBar(s, vm::joinConference, vm::dismissConference)
             ReturnToCallBar(s, vm::returnToCall)
             HomeScreen(s, onCall = vm::call, onChat = vm::openChat, onSignOut = vm::signOut)
         }
         is Screen.Chat -> vm.client?.let { client ->
             Column(Modifier.fillMaxSize()) {
+                ConferenceInviteBar(s, vm::joinConference, vm::dismissConference)
                 ReturnToCallBar(s, vm::returnToCall)
                 ChatPane(client, screen.contact,
                     onBack = { if (s.activeCall != null) vm.returnToCall() else vm.back() },
@@ -88,6 +90,7 @@ fun DemoApp(vm: DemoViewModel = viewModel()) {
             // The SDK's ready-made call screen: answer/decline, mute, speaker/Bluetooth, keypad, hold, end.
             val model = viewModel(key = "call-${System.identityHashCode(client)}-${screen.callId}") { CallViewModel(client) }
             Column(Modifier.fillMaxSize()) {
+                ConferenceInviteBar(s, vm::joinConference, vm::dismissConference)
                 s.activeCall?.let { call ->
                     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         Spacer(Modifier.weight(1f))
@@ -102,6 +105,21 @@ fun DemoApp(vm: DemoViewModel = viewModel()) {
                 Box(Modifier.weight(1f)) { InCallUi { CallScreen(model, Modifier.fillMaxSize()) } }
             }
         }
+    }
+}
+
+/** An invitation into a 3-way call, on whatever screen is showing. */
+@Composable
+private fun ConferenceInviteBar(s: DemoState, onJoin: () -> Unit, onDismiss: () -> Unit) {
+    val invite = s.confInvite ?: return
+    Row(
+        Modifier.fillMaxWidth().background(Color(0xFF1D4ED8)).padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("${invite.from.displayName} invites you to a 3-way call", color = Color.White, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.weight(1f))
+        TextButton(onClick = onDismiss) { Text("Not now", color = Color.White) }
+        Button(onClick = onJoin) { Text("Join") }
     }
 }
 

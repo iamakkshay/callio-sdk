@@ -30,6 +30,7 @@ data class DemoState(
     val contacts: List<Contact> = emptyList(),
     val presence: Map<String, Boolean> = emptyMap(),
     val activeCall: ActiveCall? = null,   // set while a call is on, whichever screen is showing
+    val confInvite: ConferenceInvite? = null,   // someone invites us into a 3-way call
 )
 
 data class ActiveCall(val id: String, val peer: Contact)
@@ -84,6 +85,24 @@ class DemoViewModel(app: Application) : AndroidViewModel(app), InCallListener {
     }
 
     fun openChat(contact: Contact) = _state.update { it.copy(screen = Screen.Chat(contact), error = null) }
+
+    fun joinConference() {
+        val c = client ?: return
+        val invite = _state.value.confInvite ?: return
+        _state.update { it.copy(confInvite = null) }
+        viewModelScope.launch {
+            runCatching { c.joinConference(invite) }
+                .onSuccess { call -> _state.update { it.copy(screen = Screen.InCall(call.id), activeCall = ActiveCall(call.id, call.peer)) } }
+                .onFailure { e -> _state.update { it.copy(error = e.message ?: "Couldn't join the 3-way call") } }
+        }
+    }
+
+    fun dismissConference() = _state.update { it.copy(confInvite = null) }
+
+    override fun onConferenceInvite(invite: ConferenceInvite) = _state.update { it.copy(confInvite = invite) }
+
+    // The person we were talking to moved the call into a 3-way call; the SDK followed them in.
+    override fun onConferenceStarted(call: Call) = _state.update { it.copy(screen = Screen.InCall(call.id), activeCall = ActiveCall(call.id, call.peer)) }
 
     /** Back to the call that's on, from chat or the contact list. */
     fun returnToCall() = _state.update { s -> s.activeCall?.let { s.copy(screen = Screen.InCall(it.id)) } ?: s }
