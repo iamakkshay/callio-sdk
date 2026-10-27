@@ -63,7 +63,7 @@ internal class SipWsClient(private val cfg: Config) {
         })
     }
 
-    fun close() { ws?.close(1000, null); ws = null }
+    fun close() { ws?.close(1000, null); ws = null; dialog = null; incomingInvite = null }
 
     // REGISTER (with digest), FR-SDK-04 / fix #4
     suspend fun register(expires: Int = 120) {
@@ -179,7 +179,7 @@ internal class SipWsClient(private val cfg: Config) {
 
     /** Send an in-dialog request (ACK/BYE/REFER) to the remote target. ACK reuses the INVITE's CSeq; the
      * others take a fresh one. ACK is fire-and-forget; BYE/REFER await their final response. */
-    private fun sendInDialog(method: String, d: Dialog, cseqNum: Int, extra: List<Pair<String, String>> = emptyList()) {
+    private fun sendInDialog(method: String, d: Dialog, cseqNum: Int, extra: List<Pair<String, String>> = emptyList(), body: String = "") {
         val w = ws ?: return
         val headers = mutableListOf(
             "Via" to "SIP/2.0/WS $contactHost;branch=z9hG4bK${randToken()}",
@@ -191,7 +191,29 @@ internal class SipWsClient(private val cfg: Config) {
         headers.add("Call-ID" to d.callId)
         headers.add("CSeq" to "$cseqNum $method")
         headers.addAll(extra)
-        w.send(SipMessage.buildRequest(method, d.remoteTarget, headers, ""))
+        w.send(SipMessage.buildRequest(method, d.remoteTarget, headers, body))
+    }
+
+    /**
+     * Put the established call on hold (or take it off): a re-INVITE carrying our last SDP with its
+     * direction set to sendonly (held) or sendrecv, so the other side knows. Returns false if refused.
+     */
+    suspend fun hold(held: Boolean): Boolean {
+        val d = dialog ?: return false
+        val sdp = d.localSdp.replace(Regex("a=(sendrecv|sendonly|recvonly|inactive)"), if (held) "a=sendonly" else "a=sendrecv")
+        val n = nextCseq()
+        val resp = withTimeoutOrNull(8000) {
+            suspendCancellableCoroutine<SipMessage> { cont ->
+                synchronized(lock) { pending[n] = cont }
+                sendInDialog("INVITE", d, n, listOf(
+                    "Contact" to "<sip:${cfg.sipUser}@$contactHost;transport=ws>",
+                    "Content-Type" to "application/sdp",
+                ), sdp)
+            }
+        }
+        synchronized(lock) { pending.remove(n) }
+        if (resp != null) sendInDialog("ACK", d, n)   // every final answer to an INVITE is ACKed
+        return resp?.statusCode?.let { it / 100 == 2 } == true
     }
 
     /** Hang up an established call: in-dialog BYE, wait (briefly) for its 200. */
@@ -286,7 +308,7 @@ internal class SipWsClient(private val cfg: Config) {
                 if (tagOf(m.header("To")).isNotEmpty()) { reInvite(m); return }   // inside a call: hold or resume
                 val cid = m.header("Call-ID") ?: callId
                 if (incomingInvite?.header("Call-ID") == cid) return   // a retransmission of the one ringing
-                if (incomingInvite != null) { respond(m, 486, "Busy Here"); return }   // another call is already ringing
+                if (incomingInvite != null || dialog != null) { respond(m, 486, "Busy Here"); return }   // already ringing or on a call
                 incomingInvite = m
                 // Tell the caller we're ringing at once: the proxy gives up on a silent device after a few seconds.
                 respond(m, 100, "Trying")

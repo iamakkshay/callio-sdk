@@ -14,7 +14,12 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -58,16 +63,55 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun DemoApp(vm: DemoViewModel = viewModel()) {
     val s by vm.state.collectAsState()
-    BackHandler(enabled = s.screen is Screen.Chat) { vm.back() }
+    // While a call is on, Back never leaves it: from the call screen it does nothing, from chat it returns to the call.
+    BackHandler(enabled = s.screen is Screen.InCall) {}
+    BackHandler(enabled = s.screen is Screen.Chat) { if (s.activeCall != null) vm.returnToCall() else vm.back() }
     when (val screen = s.screen) {
         Screen.SignIn -> SignInScreen(s) { server, org, user, pw -> vm.signIn(server, org, user, pw) }
-        Screen.Home -> HomeScreen(s, onCall = vm::call, onChat = vm::openChat, onSignOut = vm::signOut)
-        is Screen.Chat -> vm.client?.let { ChatPane(it, screen.contact, onBack = vm::back) }
+        Screen.Home -> Column(Modifier.fillMaxSize()) {
+            ReturnToCallBar(s, vm::returnToCall)
+            HomeScreen(s, onCall = vm::call, onChat = vm::openChat, onSignOut = vm::signOut)
+        }
+        is Screen.Chat -> vm.client?.let { client ->
+            Column(Modifier.fillMaxSize()) {
+                ReturnToCallBar(s, vm::returnToCall)
+                ChatPane(client, screen.contact,
+                    onBack = { if (s.activeCall != null) vm.returnToCall() else vm.back() },
+                    onCall = { if (s.activeCall != null) vm.returnToCall() else vm.call(screen.contact) })
+            }
+        }
         is Screen.InCall -> vm.client?.let { client ->
             // The SDK's ready-made call screen: answer/decline, mute, speaker/Bluetooth, keypad, hold, end.
             val model = viewModel(key = "call-${System.identityHashCode(client)}-${screen.callId}") { CallViewModel(client) }
-            InCallUi { CallScreen(model, Modifier.fillMaxSize()) }
+            Column(Modifier.fillMaxSize()) {
+                s.activeCall?.let { call ->
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Spacer(Modifier.weight(1f))
+                        // Chat with the same person without leaving the call; the green bar brings you back.
+                        TextButton(onClick = { vm.openChat(call.peer) }) {
+                            Icon(Icons.Filled.Email, contentDescription = null)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Chat")
+                        }
+                    }
+                }
+                Box(Modifier.weight(1f)) { InCallUi { CallScreen(model, Modifier.fillMaxSize()) } }
+            }
         }
+    }
+}
+
+/** A green bar on every screen but the call itself while a call is on: tap to go back to it. */
+@Composable
+private fun ReturnToCallBar(s: DemoState, onReturn: () -> Unit) {
+    val call = s.activeCall ?: return
+    Row(
+        Modifier.fillMaxWidth().background(Brand).clickable(onClick = onReturn).padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Filled.Call, contentDescription = null, tint = Color.White)
+        Text("On call with ${call.peer.displayName} · tap to return", color = Color.White, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(start = 10.dp))
     }
 }
 
@@ -138,26 +182,27 @@ private fun ContactRow(c: Contact, online: Boolean?, onCall: (Contact) -> Unit, 
 }
 
 @Composable
-private fun ChatPane(client: InCallClient, contact: Contact, onBack: () -> Unit) {
+private fun ChatPane(client: InCallClient, contact: Contact, onBack: () -> Unit, onCall: () -> Unit) {
     val context = LocalContext.current
     val model = viewModel(key = "chat-${System.identityHashCode(client)}-${contact.sipUser}") { ChatViewModel(client, contact) }
     Column(Modifier.fillMaxSize().imePadding()) {
-        Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack) { Text("Back") }
-            Text(contact.displayName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+            Text(contact.displayName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            IconButton(onClick = onCall) { Icon(Icons.Filled.Call, contentDescription = "Call", tint = Brand) }
         }
         Box(Modifier.weight(1f)) {
-          InCallUi {
-            // The SDK's ready-made chat: bubbles, read ticks, location cards and a composer.
-            ChatScreen(
-                model,
-                Modifier.fillMaxSize(),
-                onShareLocation = { lastLocation(context) },
-                onOpenLocation = { loc ->
-                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("geo:${loc.lat},${loc.lng}?q=${loc.lat},${loc.lng}")))
-                },
-            )
-          }
+            InCallUi {
+                // The SDK's ready-made chat: bubbles, read ticks, location cards and a composer.
+                ChatScreen(
+                    model,
+                    Modifier.fillMaxSize(),
+                    onShareLocation = { lastLocation(context) },
+                    onOpenLocation = { loc ->
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("geo:${loc.lat},${loc.lng}?q=${loc.lat},${loc.lng}")))
+                    },
+                )
+            }
         }
     }
 }

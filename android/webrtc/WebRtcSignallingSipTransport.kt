@@ -129,7 +129,12 @@ internal class WebRtcSignallingSipTransport(private val context: Context) : SipT
         onMain { events?.onCallStateChanged(CallState.Ended(CallEndReason.ENDED), id) }
     }
     override suspend fun setMuted(muted: Boolean) { media?.setMuted(muted) }
-    override suspend fun setHold(held: Boolean) { media?.setHold(held) }
+    /** Hold: tell the other side (re-INVITE, a=sendonly) and stop sending our audio; resume reverses both. */
+    override suspend fun setHold(held: Boolean) {
+        media?.setHold(held)
+        val ok = client?.hold(held) ?: false
+        if (!ok) onMain { events?.onFailure(InCallException.Network(if (held) "couldn't put the call on hold" else "couldn't resume the call")) }
+    }
     override suspend fun setAudioRoute(route: AudioRoute) {}          // via ConnectionService / AudioManager
     override suspend fun sendDtmf(tone: String) {}                    // TODO: DtmfSender
     override suspend fun transfer(sipUser: String) {                 // blind transfer via in-dialog REFER

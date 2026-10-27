@@ -26,7 +26,10 @@ data class DemoState(
     val registration: RegistrationState = RegistrationState.OFFLINE,
     val contacts: List<Contact> = emptyList(),
     val presence: Map<String, Boolean> = emptyMap(),
+    val activeCall: ActiveCall? = null,   // set while a call is on, whichever screen is showing
 )
+
+data class ActiveCall(val id: String, val peer: Contact)
 
 /** Owns the one InCallClient for the signed-in user and the screen the demo shows. */
 class DemoViewModel(app: Application) : AndroidViewModel(app), InCallListener {
@@ -61,12 +64,15 @@ class DemoViewModel(app: Application) : AndroidViewModel(app), InCallListener {
         val c = client ?: return
         viewModelScope.launch {
             runCatching { c.dial(contact) }
-                .onSuccess { call -> _state.update { it.copy(screen = Screen.InCall(call.id), error = null) } }
+                .onSuccess { call -> _state.update { it.copy(screen = Screen.InCall(call.id), activeCall = ActiveCall(call.id, call.peer), error = null) } }
                 .onFailure { e -> _state.update { it.copy(error = e.message ?: "Call failed") } }
         }
     }
 
     fun openChat(contact: Contact) = _state.update { it.copy(screen = Screen.Chat(contact), error = null) }
+
+    /** Back to the call that's on, from chat or the contact list. */
+    fun returnToCall() = _state.update { s -> s.activeCall?.let { s.copy(screen = Screen.InCall(it.id)) } ?: s }
 
     fun back() = _state.update { it.copy(screen = if (client != null) Screen.Home else Screen.SignIn) }
 
@@ -75,7 +81,7 @@ class DemoViewModel(app: Application) : AndroidViewModel(app), InCallListener {
         client = null
         c.removeListener(this)
         c.stopPresenceUpdates()
-        viewModelScope.launch { runCatching { c.stop() } }
+        viewModelScope.launch { runCatching { c.currentCall?.hangup() }; runCatching { c.stop() } }   // end any call first
         _state.value = DemoState()
     }
 
@@ -86,7 +92,7 @@ class DemoViewModel(app: Application) : AndroidViewModel(app), InCallListener {
 
     override fun onRegistrationChanged(state: RegistrationState) = _state.update { it.copy(registration = state) }
 
-    override fun onIncomingCall(call: Call) = _state.update { it.copy(screen = Screen.InCall(call.id)) }
+    override fun onIncomingCall(call: Call) = _state.update { it.copy(screen = Screen.InCall(call.id), activeCall = ActiveCall(call.id, call.peer)) }
 
     override fun onCallStateChanged(call: Call) {
         val ended = call.state as? CallState.Ended ?: return
@@ -99,9 +105,9 @@ class DemoViewModel(app: Application) : AndroidViewModel(app), InCallListener {
             CallEndReason.MISSED -> "Missed call from $who"
             CallEndReason.ENDED -> null
         }
-        _state.update { it.copy(error = why) }
+        _state.update { s -> s.copy(error = why, activeCall = if (s.activeCall?.id == call.id) null else s.activeCall) }
         viewModelScope.launch {
-            delay(1500)   // leave "Call ended" on screen for a moment
+            delay(1500)   // leave "Call ended" on screen for a moment; only the call screen moves on by itself
             _state.update { s -> if (s.screen == Screen.InCall(call.id)) s.copy(screen = Screen.Home) else s }
         }
     }
