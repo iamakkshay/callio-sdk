@@ -8,6 +8,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -45,6 +46,7 @@ private val Brand = Color(0xFF0F9F6E)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()   // we lay out around the status bar, navigation bar and keyboard ourselves
         super.onCreate(savedInstanceState)
         val perms = buildList {
             add(Manifest.permission.RECORD_AUDIO)
@@ -54,7 +56,9 @@ class MainActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {}.launch(perms.toTypedArray())
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(primary = Brand)) {
-                Surface(Modifier.fillMaxSize()) { DemoApp() }
+                // safeDrawing = status bar + navigation bar + keyboard: headers stay below the status bar, only lists
+                // scroll, and the message box sits just above the keyboard.
+                Surface(Modifier.fillMaxSize()) { Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) { DemoApp() } }
             }
         }
     }
@@ -122,7 +126,7 @@ private fun SignInScreen(s: DemoState, onSignIn: (String, String, String, String
     var user by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
     Column(
-        Modifier.fillMaxSize().padding(24.dp).imePadding(),
+        Modifier.fillMaxSize().padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
     ) {
         Text("Callio Demo", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
@@ -185,12 +189,17 @@ private fun ContactRow(c: Contact, online: Boolean?, onCall: (Contact) -> Unit, 
 private fun ChatPane(client: InCallClient, contact: Contact, onBack: () -> Unit, onCall: () -> Unit) {
     val context = LocalContext.current
     val model = viewModel(key = "chat-${System.identityHashCode(client)}-${contact.sipUser}") { ChatViewModel(client, contact) }
-    Column(Modifier.fillMaxSize().imePadding()) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+    Column(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
             Text(contact.displayName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-            IconButton(onClick = onCall) { Icon(Icons.Filled.Call, contentDescription = "Call", tint = Brand) }
+            Button(onClick = onCall, modifier = Modifier.padding(end = 8.dp)) {
+                Icon(Icons.Filled.Call, contentDescription = null)
+                Spacer(Modifier.width(6.dp))
+                Text("Call")
+            }
         }
+        HorizontalDivider()
         Box(Modifier.weight(1f)) {
             InCallUi {
                 // The SDK's ready-made chat: bubbles, read ticks, location cards and a composer.
