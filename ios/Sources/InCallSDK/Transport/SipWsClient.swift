@@ -36,6 +36,7 @@ final class SipWsClient: @unchecked Sendable {
         let remoteTag: String
         let routes: [String]      // the route set, in the order Route headers are sent
         let callId: String
+        let localSdp: String      // what we last sent, re-used to answer the other side's hold/resume
     }
     private var dialog: Dialog?
 
@@ -51,6 +52,8 @@ final class SipWsClient: @unchecked Sendable {
     var onChatMessage: ((_ fromSip: String, _ body: String) -> Void)?
     var onIncomingInvite: ((_ fromSip: String, _ sdpOffer: String, _ callId: String) -> Void)?
     var onBye: ((_ callId: String) -> Void)?
+    /// The other side put the call on hold (true) or resumed it (false).
+    var onRemoteHold: ((_ held: Bool) -> Void)?
     /// The caller gave up (or the proxy timed the call out) before we answered.
     var onCancel: ((_ callId: String) -> Void)?
 
@@ -152,7 +155,8 @@ final class SipWsClient: @unchecked Sendable {
                        remoteTarget: uriOf(resp.header("Contact")) ?? target,
                        remoteTag: tagOf(resp.header("To")),
                        routes: resp.headers.filter { $0.name.caseInsensitiveCompare("Record-Route") == .orderedSame }.map { $0.value }.reversed(),
-                       callId: cid)
+                       callId: cid,
+                       localSdp: sdpOffer)
         dialog = d
         sendInDialog(method: "ACK", dialog: d, cseqNum: cseqNumber(resp) ?? nextCseq())
         return resp.body   // the answer SDP, for the peer connection's setRemoteDescription
@@ -271,7 +275,8 @@ final class SipWsClient: @unchecked Sendable {
                         remoteTarget: uriOf(inv.header("Contact")) ?? (uriOf(inv.header("From")) ?? ""),
                         remoteTag: tagOf(inv.header("From")),
                         routes: inv.headers.filter { $0.name.caseInsensitiveCompare("Record-Route") == .orderedSame }.map { $0.value },
-                        callId: inv.header("Call-ID") ?? callId)
+                        callId: inv.header("Call-ID") ?? callId,
+                        localSdp: sdp)
     }
 
     /// Reject the pending inbound INVITE (decline = 603, busy = 486).
@@ -315,6 +320,7 @@ final class SipWsClient: @unchecked Sendable {
             respond(to: m, status: 200, reason: "OK")   // without this the sender sees the message fail
             onChatMessage?(aorUser(m.header("From")), m.body)
         case "INVITE":
+            if !tagOf(m.header("To")).isEmpty { reInvite(m); return }   // inside a call: hold or resume
             let cid = m.header("Call-ID") ?? callId
             if incomingInvite?.header("Call-ID") == cid { return }   // a retransmission of the one ringing
             if incomingInvite != nil { respond(to: m, status: 486, reason: "Busy Here"); return }   // another call is already ringing
@@ -338,6 +344,23 @@ final class SipWsClient: @unchecked Sendable {
             respond(to: m, status: 200, reason: "OK")
         default: break
         }
+    }
+
+    /// A re-INVITE on the established call: the other side holds (a=sendonly / a=inactive) or resumes
+    /// (a=sendrecv). Answer with the SDP we already sent, its direction mirrored, so the call carries on.
+    private func reInvite(_ m: SipMessage) {
+        guard let d = dialog, m.header("Call-ID") == d.callId else {
+            respond(to: m, status: 481, reason: "Call/Transaction Does Not Exist"); return
+        }
+        let offer = m.body
+        let (ours, held): (String, Bool) =
+            offer.contains("a=sendonly") ? ("a=recvonly", true) :
+            offer.contains("a=inactive") ? ("a=inactive", true) :
+            offer.contains("a=recvonly") ? ("a=sendonly", false) : ("a=sendrecv", false)
+        let answer = d.localSdp.replacingOccurrences(of: "a=(sendrecv|sendonly|recvonly|inactive)", with: ours, options: .regularExpression)
+        respond(to: m, status: 100, reason: "Trying")
+        respond(to: m, status: 200, reason: "OK", sdp: answer, withDialog: true)
+        onRemoteHold?(held)
     }
 
     // MARK: - request/response plumbing (lock-guarded)

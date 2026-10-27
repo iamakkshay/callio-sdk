@@ -40,6 +40,10 @@ final class SignallingSIPTransport: SIPTransport {
             let id = self?.currentCallId ?? ""
             self?.onMain { self?.events?.transport(callDidChange: .ended(.ended), callId: id) }
         }
+        c.onRemoteHold = { [weak self] held in
+            let id = self?.currentCallId ?? ""
+            self?.onMain { self?.events?.transport(callDidChange: held ? .onHold : .connected, callId: id) }
+        }
         c.onCancel = { [weak self] callId in
             self?.pendingOffer = nil
             self?.onMain { self?.events?.transport(callDidChange: .ended(.missed), callId: callId) }

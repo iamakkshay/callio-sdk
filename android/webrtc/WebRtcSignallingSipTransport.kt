@@ -38,6 +38,7 @@ internal class WebRtcSignallingSipTransport(private val context: Context) : SipT
         }
         c.onBye = { _ -> media?.close(); media = null; val id = currentCallId ?: ""; onMain { events?.onCallStateChanged(CallState.Ended(CallEndReason.ENDED), id) } }
         c.onCancel = { callId -> pendingOffer = null; onMain { events?.onCallStateChanged(CallState.Ended(CallEndReason.MISSED), callId) } }
+        c.onRemoteHold = { held -> val id = currentCallId ?: ""; onMain { events?.onCallStateChanged(if (held) CallState.OnHold else CallState.Connected, id) } }
         client = c
         c.connect()
         c.register()
@@ -86,7 +87,15 @@ internal class WebRtcSignallingSipTransport(private val context: Context) : SipT
         return id
     }
 
+    @Volatile private var answering = false
+
     override suspend fun answer() {
+        if (answering) return   // answering takes a moment; ignore a second tap
+        answering = true
+        try { answerOnce() } finally { answering = false }
+    }
+
+    private suspend fun answerOnce() {
         val c = client ?: throw InCallException.NotRegistered
         val s = session ?: throw InCallException.NotRegistered
         val offer = pendingOffer ?: throw InCallException.MediaFailed("no pending call")

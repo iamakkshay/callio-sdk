@@ -38,6 +38,7 @@ internal class SipWsClient(private val cfg: Config) {
     private data class Dialog(
         val localAor: String, val remoteAor: String, val remoteTarget: String, val remoteTag: String, val routes: List<String>,
         val callId: String,
+        val localSdp: String,   // what we last sent, re-used to answer the other side's hold/resume
     )
     /** The INVITE we sent and haven't had a final answer to, so it can be CANCELled. */
     private data class OutgoingInvite(val target: String, val callId: String, val cseq: Int, val via: String, val from: String, val to: String)
@@ -48,6 +49,8 @@ internal class SipWsClient(private val cfg: Config) {
     var onChatMessage: ((fromSip: String, body: String) -> Unit)? = null
     var onIncomingInvite: ((fromSip: String, sdpOffer: String, callId: String) -> Unit)? = null
     var onBye: ((callId: String) -> Unit)? = null
+    /** The other side put the call on hold (true) or resumed it (false). */
+    var onRemoteHold: ((held: Boolean) -> Unit)? = null
     /** The caller gave up (or the proxy timed the call out) before we answered. */
     var onCancel: ((callId: String) -> Unit)? = null
 
@@ -141,6 +144,7 @@ internal class SipWsClient(private val cfg: Config) {
                 remoteTag = tagOf(resp.header("To")),
                 routes = resp.headers.filter { it.first.equals("Record-Route", true) }.reversed().map { it.second },
                 callId = cid,
+                localSdp = sdpOffer,
             )
             dialog = d
             sendInDialog("ACK", d, cseqNumber(resp) ?: nextCseq())
@@ -234,6 +238,7 @@ internal class SipWsClient(private val cfg: Config) {
             remoteTag = tagOf(inv.header("From")),
             routes = inv.headers.filter { it.first.equals("Record-Route", true) }.map { it.second },
             callId = inv.header("Call-ID") ?: callId,
+            localSdp = sdp,
         )
     }
 
@@ -278,6 +283,7 @@ internal class SipWsClient(private val cfg: Config) {
                 onChatMessage?.invoke(aorUser(m.header("From")), m.body)
             }
             "INVITE" -> {
+                if (tagOf(m.header("To")).isNotEmpty()) { reInvite(m); return }   // inside a call: hold or resume
                 val cid = m.header("Call-ID") ?: callId
                 if (incomingInvite?.header("Call-ID") == cid) return   // a retransmission of the one ringing
                 if (incomingInvite != null) { respond(m, 486, "Busy Here"); return }   // another call is already ringing
@@ -304,6 +310,27 @@ internal class SipWsClient(private val cfg: Config) {
             "OPTIONS" -> respond(m, 200, "OK")
             "ACK" -> {}
         }
+    }
+
+    /**
+     * A re-INVITE on the established call: the other side holds (a=sendonly / a=inactive) or resumes
+     * (a=sendrecv). Answer with the SDP we already sent, its direction mirrored, so the call carries on.
+     */
+    private fun reInvite(m: SipMessage) {
+        val d = dialog
+        if (d == null || m.header("Call-ID") != d.callId) { respond(m, 481, "Call/Transaction Does Not Exist"); return }
+        val offer = m.body
+        val (ours, held) = when {
+            offer.contains("a=sendonly") -> "a=recvonly" to true
+            offer.contains("a=inactive") -> "a=inactive" to true
+            offer.contains("a=recvonly") -> "a=sendonly" to false
+            else -> "a=sendrecv" to false
+        }
+        val answer = if (d.localSdp.isEmpty()) "" else
+            d.localSdp.replace(Regex("a=(sendrecv|sendonly|recvonly|inactive)"), ours)
+        respond(m, 100, "Trying")
+        respond(m, 200, "OK", answer, withDialog = true)
+        onRemoteHold?.invoke(held)
     }
 
     private fun nextCseq(): Int = synchronized(lock) { ++cseq }

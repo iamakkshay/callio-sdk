@@ -177,13 +177,14 @@ class InCallClient internal constructor(
     override fun onCallStateChanged(state: CallState, callId: String) {
         val call = currentCall ?: return
         if (call.id != callId) return
+        val previous = call.state
         call.state = state
         emit { it.onCallStateChanged(call) }
         when (state) {
             is CallState.Ringing -> scope.launch { api.emitEvent("call.ringing", callId, call.peer.sipUser) }
             is CallState.Connected -> {
                 audio.startCall()   // voice-call audio mode: echo cancellation, earpiece, Bluetooth
-                scope.launch { api.emitEvent("call.connected", callId, call.peer.sipUser) }
+                if (previous !is CallState.OnHold) scope.launch { api.emitEvent("call.connected", callId, call.peer.sipUser) }
             }
             is CallState.Ended -> {
                 audio.endCall()
