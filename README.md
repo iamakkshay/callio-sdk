@@ -7,8 +7,8 @@ your contact centre, without ever sharing a phone number. These SDKs connect you
 |---|---|---|
 | iOS (Swift Package Manager) | Add `https://github.com/iamakkshay/callio-sdk`, products `InCallSDK` and `InCallUI` | [ios/](ios) |
 | iOS (CocoaPods) | `pod 'InCallSDK'`, and `pod 'InCallUI'` for the ready-made screens | [ios/](ios) |
-| Android | `implementation("com.github.iamakkshay.callio-sdk:incall-sdk:0.2.0")` from JitPack | [android/](android) |
-| Android UI (Compose) | `implementation("com.github.iamakkshay.callio-sdk:incall-ui:0.2.0")` | [android-ui/](android-ui) |
+| Android | `implementation("com.github.iamakkshay.callio-sdk:incall-sdk:0.2.1")` from JitPack | [android/](android) |
+| Android UI (Compose) | `implementation("com.github.iamakkshay.callio-sdk:incall-ui:0.2.1")` | [android-ui/](android-ui) |
 | Flutter | `flutter pub add incall_flutter` | [flutter/](flutter) |
 | React Native | `npm install @clarigoinfotech/callio-react-native` | [react-native/](react-native) |
 
@@ -50,6 +50,8 @@ scope.launch {
     val call = client.dial(contact)
 }
 ```
+
+A complete native Android app using the SDK is in [android-demo/](android-demo); CI builds an installable APK.
 
 Native ringing when the app is closed (CallKit on iOS, Telecom on Android) needs a few lines in your app: see
 [EXAMPLES.md](EXAMPLES.md). The full API model is in [docs/SDK_API_CONTRACT.md](docs/SDK_API_CONTRACT.md).

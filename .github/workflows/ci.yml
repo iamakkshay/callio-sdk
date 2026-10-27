@@ -34,6 +34,12 @@ jobs:
         run: ./gradlew :incall-sdk:testDebugUnitTest -PnoWebRtc --no-daemon
       - name: Build and publish locally, as JitPack does
         run: ./gradlew :incall-sdk:publishToMavenLocal :incall-ui:publishToMavenLocal --no-daemon
+      - name: Build the demo app
+        run: ./gradlew :demo:assembleDebug --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: callio-demo-apk
+          path: android-demo/build/outputs/apk/debug/*.apk
 
   flutter:
     name: Flutter (analyze + pub.dev dry run)

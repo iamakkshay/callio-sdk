@@ -1,6 +1,5 @@
-// WebRtcSignallingSipTransport — SignallingSipTransport + real WebRTC calls. Compiled under `-PwithWebRtc`
-// (see WebRtcMedia.kt's header + build.gradle.kts). A calling host app points InCallClient at
-// `WebRtcSignallingSipTransport(context)` instead of the signalling-only SignallingSipTransport().
+// WebRtcSignallingSipTransport — SignallingSipTransport + real WebRTC calls. Compiled when the build includes
+// webrtc/ (see build.gradle.kts). InCallClient's public constructor picks it up automatically when present.
 package com.ngx.incall
 
 import android.content.Context

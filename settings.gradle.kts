@@ -2,6 +2,7 @@
 pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
 dependencyResolutionManagement { repositories { google(); mavenCentral() } }
 rootProject.name = "callio-sdk"
-include(":incall-sdk", ":incall-ui")
+include(":incall-sdk", ":incall-ui", ":demo")
 project(":incall-sdk").projectDir = file("android")
 project(":incall-ui").projectDir = file("android-ui")
+project(":demo").projectDir = file("android-demo")

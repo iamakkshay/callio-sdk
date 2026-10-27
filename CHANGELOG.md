@@ -3,6 +3,12 @@
 All SDKs (iOS, Android, Flutter, React Native) share one version, kept in `VERSION`. Versions follow
 [semantic versioning](https://semver.org): a **major** bump breaks apps, a **minor** adds features, a **patch** fixes.
 
+## 0.2.1
+- Android: `InCallClient` now uses WebRTC calls by default (0.2.0 only registered and chatted unless you wired
+  the transport yourself).
+- New: native Android demo app in `android-demo/`. Sign in, see contacts and presence, call, chat and share
+  location, using the ready-made screens. CI builds an installable APK.
+
 ## 0.2.0
 - Calls survive network changes (ICE restart, up to 15 s).
 - Pre-call network test (`preCallTest()`): server, signalling, microphone, STUN and TURN.

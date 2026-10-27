@@ -15,5 +15,5 @@ repositories { google(); mavenCentral(); maven { url 'https://jitpack.io' } }
 dependencies {
     implementation 'com.facebook.react:react-android'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
-    implementation 'com.github.iamakkshay.callio-sdk:incall-sdk:0.2.0'   // the native Callio Android SDK (JitPack)
+    implementation 'com.github.iamakkshay.callio-sdk:incall-sdk:0.2.1'   // the native Callio Android SDK (JitPack)
 }

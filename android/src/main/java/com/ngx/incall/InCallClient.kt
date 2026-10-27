@@ -37,9 +37,10 @@ class InCallClient internal constructor(
     transport: SipTransport,
 ) : SipTransportEvents {
 
-    /** Public entry point. Uses the real SIP-over-WSS signalling transport. */
+    /** Public entry point. Uses WebRTC calls when the media layer is compiled in (the published SDK), else
+     *  the signalling-only transport (registration and chat). */
     constructor(context: Context, config: InCallConfig, scope: CoroutineScope = CoroutineScope(Dispatchers.Main))
-        : this(context, config, scope, SignallingSipTransport())
+        : this(context, config, scope, defaultTransport(context))
 
     private val appContext = context.applicationContext
     private val api = PlatformApi(config.baseUrl, config.tokenProvider)
@@ -211,6 +212,16 @@ class InCallClient internal constructor(
     override fun onFailure(error: InCallException) { emit { it.onFailure(error) } }
 
     private companion object {
+        // The WebRTC transport lives in webrtc/, which only builds with libwebrtc, so src/main can't name it.
+        // Load it by name when it's there; consumer-rules.pro keeps the class through the host app's R8.
+        fun defaultTransport(context: Context): SipTransport =
+            runCatching {
+                Class.forName("com.ngx.incall.WebRtcSignallingSipTransport")
+                    .getDeclaredConstructor(Context::class.java)
+                    .apply { isAccessible = true }
+                    .newInstance(context.applicationContext) as SipTransport
+            }.getOrElse { SignallingSipTransport() }
+
         fun stableDeviceId(context: Context): String {
             val prefs = context.getSharedPreferences("incall", Context.MODE_PRIVATE)
             return prefs.getString("deviceId", null) ?: UUID.randomUUID().toString().also {
