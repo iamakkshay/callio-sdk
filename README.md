@@ -7,8 +7,8 @@ your contact centre, without ever sharing a phone number. These SDKs connect you
 |---|---|---|
 | iOS (Swift Package Manager) | Add `https://github.com/iamakkshay/callio-sdk`, products `InCallSDK` and `InCallUI` | [ios/](ios) |
 | iOS (CocoaPods) | `pod 'InCallSDK'`, and `pod 'InCallUI'` for the ready-made screens | [ios/](ios) |
-| Android | `implementation("com.github.iamakkshay.callio-sdk:incall-sdk:0.2.2")` from JitPack | [android/](android) |
-| Android UI (Compose) | `implementation("com.github.iamakkshay.callio-sdk:incall-ui:0.2.2")` | [android-ui/](android-ui) |
+| Android | `implementation("com.github.iamakkshay.callio-sdk:incall-sdk:0.2.3")` from JitPack | [android/](android) |
+| Android UI (Compose) | `implementation("com.github.iamakkshay.callio-sdk:incall-ui:0.2.3")` | [android-ui/](android-ui) |
 | Flutter | `flutter pub add incall_flutter` | [flutter/](flutter) |
 | React Native | `npm install @clarigoinfotech/callio-react-native` | [react-native/](react-native) |
 

@@ -1,3 +1,7 @@
+## 0.2.3
+
+- Uses Callio Android and iOS SDKs 0.2.3: hold and resume, 3-way calls, clearer audio, ringing when the app is closed.
+
 ## 0.2.2
 
 - Uses Callio Android and iOS SDKs 0.2.2: incoming calls ring and can be answered, chat sends and receives.

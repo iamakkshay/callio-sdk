@@ -3,6 +3,22 @@
 All SDKs (iOS, Android, Flutter, React Native) share one version, kept in `VERSION`. Versions follow
 [semantic versioning](https://semver.org): a **major** bump breaks apps, a **minor** adds features, a **patch** fixes.
 
+## 0.2.3
+Android and iOS, tested on a real Android phone against the platform:
+- Ringing when the app is closed: the call server now holds a call while the push wakes the app, and delivers it
+  when the app reconnects (needs platform 2026-10-27 or later). Answering from the system call screen before the
+  call has arrived now waits for it instead of failing.
+- Hold and resume renegotiate from the WebRTC connection in both directions (an echoed SDP made the other side drop
+  the call). Holding from the app tells the other side.
+- A second call while on a call gets "busy" instead of replacing the current one.
+- 3-way calls: when the other side adds someone, the SDK follows the call into the conference
+  (`onConferenceStarted` / `conferenceDidStart`); invitations arrive as `onConferenceInvite` /
+  `didReceiveConferenceInvite`, joined with `joinConference`.
+- Audio: voice processing on the microphone (echo cancellation, noise suppression, gain, high-pass) and Opus
+  in-band FEC, mono, 32 kbps. Android enters voice-call audio mode for the call.
+- Hanging up when the media can't start after the other side answered (it was left in the call); a second answer
+  tap is ignored; Android WebRTC set-up runs off the main thread; ICE gathering waits at most 2.5 s.
+
 ## 0.2.2
 Fixes found testing the Android demo on a real phone (iOS had the same bugs):
 - Incoming calls: the SDK now replies 100 Trying and 180 Ringing at once. Before, the call server gave up after

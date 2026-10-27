@@ -22,7 +22,7 @@ public final class InCallCallKit: NSObject {
         public var ringtoneSound: String?
         public var includesCallsInRecents = true
         /// A push whose call never arrives over SIP (caller hung up first) is ended after this long.
-        public var pushedCallTimeout: TimeInterval = 30
+        public var pushedCallTimeout: TimeInterval = 25   // the call server holds a call ~20 s for the app to wake
         public init(iconTemplateImageData: Data? = nil, ringtoneSound: String? = nil) {
             self.iconTemplateImageData = iconTemplateImageData; self.ringtoneSound = ringtoneSound
         }
@@ -208,7 +208,14 @@ extension InCallCallKit: CXProviderDelegate {
 
     nonisolated public func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
         Task { @MainActor in
-            guard let call = self.call(for: action.callUUID) else { action.fail(); return }
+            // Answered from a push before the app has reconnected: the call server is holding the call and delivers it
+            // once we register (a second or two). Wait for it rather than fail the answer.
+            var call = self.call(for: action.callUUID)
+            for _ in 0..<66 where call == nil {
+                try? await Task.sleep(nanoseconds: 150_000_000)
+                call = self.call(for: action.callUUID)
+            }
+            guard let call else { action.fail(); return }
             do { try await call.answer(); action.fulfill() } catch { action.fail() }
         }
     }

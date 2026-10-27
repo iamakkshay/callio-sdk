@@ -8,7 +8,7 @@ import { NativeModules, NativeEventEmitter, Platform } from 'react-native';
 import { InCallClient, type NativeInCall } from './core';
 
 export * from './core';
-export const SDK_VERSION = '0.2.2';
+export const SDK_VERSION = '0.2.3';
 
 const native = NativeModules.CallioInCall as NativeInCall | undefined;
 if (!native) {

@@ -1,6 +1,6 @@
 {
   "name": "@clarigoinfotech/callio-react-native",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Callio in-app calling, chat and location for React Native (wraps the native iOS and Android SDKs)",
   "type": "module",
   "main": "src/index.ts",

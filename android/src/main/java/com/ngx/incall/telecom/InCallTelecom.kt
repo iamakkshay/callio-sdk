@@ -169,7 +169,19 @@ class InCallConnection internal constructor(var callId: String, val name: String
     override fun onAnswer() {
         InCallTelecom.cancelNotification()
         scope.launch {
-            runCatching { client?.currentCall?.takeIf { it.id == callId }?.answer() ?: error("call not here yet") }
+            runCatching {
+                // Answered from a push before the app has reconnected: the call server is holding the call and
+                // delivers it once we register (a second or two). Wait for it rather than give up.
+                val call = kotlinx.coroutines.withTimeoutOrNull(10_000) {
+                    var c: Call? = null
+                    while (c == null) {
+                        c = client?.currentCall?.takeIf { it.id == callId }
+                        if (c == null) kotlinx.coroutines.delay(150)
+                    }
+                    c
+                } ?: error("call didn't arrive")
+                call.answer()
+            }
                 .onSuccess { setActive(); client?.audio?.startCall() }
                 .onFailure { end(DisconnectCause.ERROR) }
         }
@@ -227,7 +239,7 @@ class InCallConnectionService : ConnectionService() {
             // Register so the INVITE can arrive; end the ring if the caller gives up before it does.
             InCallTelecom.scope.launch {
                 runCatching { InCallTelecom.client?.start() }
-                kotlinx.coroutines.delay(30_000)
+                kotlinx.coroutines.delay(25_000)   // the call server holds a call ~20 s for the app to wake
                 if (InCallTelecom.pushed === conn) conn.end(DisconnectCause.MISSED)
             }
         }
