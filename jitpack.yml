@@ -1,0 +1,4 @@
+jdk:
+  - openjdk17
+install:
+  - ./gradlew :incall-sdk:publishToMavenLocal :incall-ui:publishToMavenLocal --no-daemon

@@ -1,0 +1,19 @@
+// @clarigoinfotech/callio-react-native Android module. The host app's React Native Gradle plugin provides react-android.
+apply plugin: 'com.android.library'
+apply plugin: 'org.jetbrains.kotlin.android'
+
+android {
+    namespace 'com.ngx.incall.rn'
+    compileSdk 34
+    defaultConfig { minSdk 24 }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    kotlinOptions { jvmTarget = '17' }
+}
+
+repositories { google(); mavenCentral(); maven { url 'https://jitpack.io' } }
+
+dependencies {
+    implementation 'com.facebook.react:react-android'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
+    implementation 'com.github.iamakkshay.callio-sdk:incall-sdk:0.2.0'   // the native Callio Android SDK (JitPack)
+}

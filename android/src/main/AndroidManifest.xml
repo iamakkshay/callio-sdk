@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Namespace is set in build.gradle.kts. Network state is read only to tag each call's quality report with
+     wifi/cellular (FR-REP-06). The Telecom pieces (FR-CALL-02/03) merge into the host app: a self-managed
+     ConnectionService and the receiver for the incoming-call notification's Answer / Decline. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application>
+        <service
+            android:name="com.ngx.incall.telecom.InCallConnectionService"
+            android:permission="android.permission.BIND_TELECOM_CONNECTION_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.telecom.ConnectionService" />
+            </intent-filter>
+        </service>
+        <receiver android:name="com.ngx.incall.telecom.CallActionReceiver" android:exported="false" />
+    </application>
+</manifest>

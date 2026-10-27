@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['*']
+  pull_request:
+
+jobs:
+  ios:
+    name: iOS (SwiftPM + CocoaPods)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build with WebRTC
+        run: swift build
+      - name: Unit tests
+        run: INCALL_NO_WEBRTC=1 swift test
+      - name: Lint the pods (builds for iOS)
+        run: |
+          pod lib lint InCallSDK.podspec --allow-warnings --skip-tests
+          pod lib lint InCallUI.podspec --allow-warnings --skip-tests --include-podspecs=InCallSDK.podspec
+
+  android:
+    name: Android (build + unit tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Unit tests
+        run: ./gradlew :incall-sdk:testDebugUnitTest -PnoWebRtc --no-daemon
+      - name: Build and publish locally, as JitPack does
+        run: ./gradlew :incall-sdk:publishToMavenLocal :incall-ui:publishToMavenLocal --no-daemon
+
+  flutter:
+    name: Flutter (analyze + pub.dev dry run)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - working-directory: flutter
+        run: |
+          flutter pub get
+          flutter analyze lib
+          dart pub publish --dry-run
+
+  react-native:
+    name: React Native (unit tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - working-directory: react-native
+        run: npm test

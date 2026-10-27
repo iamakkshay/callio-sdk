@@ -1,0 +1,14 @@
+.build/
+.swiftpm/
+build/
+.gradle/
+local.properties
+*.iml
+.idea/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+pubspec.lock
+node_modules/
+Pods/
+.DS_Store

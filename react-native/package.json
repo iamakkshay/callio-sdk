@@ -1,0 +1,21 @@
+{
+  "name": "@clarigoinfotech/callio-react-native",
+  "version": "0.2.1",
+  "description": "Callio in-app calling, chat and location for React Native (wraps the native iOS and Android SDKs)",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "react-native": "src/index.ts",
+  "files": ["src", "ios", "android/build.gradle", "android/src", "callio-react-native.podspec"],
+  "scripts": {
+    "test": "node test/core.test.ts",
+    "prepublishOnly": "npm test"
+  },
+  "homepage": "https://github.com/iamakkshay/callio-sdk/tree/main/react-native",
+  "repository": { "type": "git", "url": "git+https://github.com/iamakkshay/callio-sdk.git", "directory": "react-native" },
+  "keywords": ["react-native", "voip", "calling", "chat", "location", "callio"],
+  "peerDependencies": { "react-native": ">=0.72" },
+  "engines": { "node": ">=22.6" },
+  "publishConfig": { "access": "public", "registry": "https://registry.npmjs.org/" },
+  "license": "SEE LICENSE IN LICENSE"
+}
