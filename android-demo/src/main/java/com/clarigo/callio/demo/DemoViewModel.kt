@@ -1,12 +1,11 @@
 package com.clarigo.callio.demo
 
 import android.app.Application
-import android.media.AudioManager
-import android.media.ToneGenerator
+import android.media.AudioAttributes
+import android.media.MediaPlayer
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.ngx.incall.*
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -43,15 +42,17 @@ class DemoViewModel(app: Application) : AndroidViewModel(app), InCallListener {
     var client: InCallClient? = null
         private set
 
-    // While the other person has us on hold: a soft tone every few seconds, so the line doesn't sound dead.
-    private var holdToneJob: Job? = null
+    // While the other person has us on hold: the hold music, looped, on the call's audio route.
+    private var holdMusic: MediaPlayer? = null
     private fun holdTone(on: Boolean) {
-        if (!on) { holdToneJob?.cancel(); holdToneJob = null; return }
-        if (holdToneJob != null) return
-        holdToneJob = viewModelScope.launch {
-            val tone = runCatching { ToneGenerator(AudioManager.STREAM_VOICE_CALL, 35) }.getOrNull() ?: return@launch
-            try { while (true) { tone.startTone(ToneGenerator.TONE_PROP_BEEP2, 400); delay(3000) } } finally { tone.release() }
-        }
+        if (!on) { holdMusic?.run { runCatching { stop() }; release() }; holdMusic = null; return }
+        if (holdMusic != null) return
+        holdMusic = runCatching {
+            MediaPlayer.create(getApplication(), R.raw.hold_music,
+                AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build(), 0)
+                ?.apply { isLooping = true; setVolume(0.6f, 0.6f); start() }
+        }.getOrNull()
     }
 
     fun signIn(server: String, org: String, user: String, password: String) {
@@ -150,5 +151,5 @@ class DemoViewModel(app: Application) : AndroidViewModel(app), InCallListener {
 
     override fun onFailure(error: InCallException) = _state.update { it.copy(error = error.message) }
 
-    override fun onCleared() { signOut() }
+    override fun onCleared() { holdTone(false); signOut() }
 }
