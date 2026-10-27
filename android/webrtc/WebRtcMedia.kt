@@ -94,6 +94,23 @@ internal class WebRtcMedia(context: Context, session: Session, private val force
         return tuneOpus(pc.localDescription?.description ?: answer.description)
     }
 
+    /** Answer the other side's re-offer (hold or resume) from the live connection, so the SDP matches what WebRTC expects. */
+    suspend fun reAnswer(offerSdp: String): String {
+        setRemote(SessionDescription(SessionDescription.Type.OFFER, offerSdp))
+        val answer = createSdp(outgoing = false)
+        setLocal(answer)
+        return tuneOpus(pc.localDescription?.description ?: answer.description)
+    }
+
+    /** Our own re-offer to hold (send only) or resume (send and receive). Apply the reply with [setAnswer]. */
+    suspend fun reOffer(held: Boolean): String {
+        val dir = if (held) RtpTransceiver.RtpTransceiverDirection.SEND_ONLY else RtpTransceiver.RtpTransceiverDirection.SEND_RECV
+        pc.transceivers.filter { it.mediaType == MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO }.forEach { it.direction = dir }
+        val offer = createSdp(outgoing = true)
+        setLocal(offer)
+        return tuneOpus(pc.localDescription?.description ?: offer.description)
+    }
+
     fun setMuted(muted: Boolean) { audioTrack.setEnabled(!muted) }
     fun setHold(held: Boolean) { audioTrack.setEnabled(!held) }   // minimal hold; true hold re-INVITEs (TODO)
     fun close() { scope.coroutineContext[kotlinx.coroutines.Job]?.cancel(); pc.close(); pc.dispose(); factory.dispose() }

@@ -1,9 +1,12 @@
 package com.clarigo.callio.demo
 
 import android.app.Application
+import android.media.AudioManager
+import android.media.ToneGenerator
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.ngx.incall.*
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -38,6 +41,17 @@ class DemoViewModel(app: Application) : AndroidViewModel(app), InCallListener {
 
     var client: InCallClient? = null
         private set
+
+    // While the other person has us on hold: a soft tone every few seconds, so the line doesn't sound dead.
+    private var holdToneJob: Job? = null
+    private fun holdTone(on: Boolean) {
+        if (!on) { holdToneJob?.cancel(); holdToneJob = null; return }
+        if (holdToneJob != null) return
+        holdToneJob = viewModelScope.launch {
+            val tone = runCatching { ToneGenerator(AudioManager.STREAM_VOICE_CALL, 35) }.getOrNull() ?: return@launch
+            try { while (true) { tone.startTone(ToneGenerator.TONE_PROP_BEEP2, 400); delay(3000) } } finally { tone.release() }
+        }
+    }
 
     fun signIn(server: String, org: String, user: String, password: String) {
         val base = server.trim().trimEnd('/')
@@ -95,6 +109,7 @@ class DemoViewModel(app: Application) : AndroidViewModel(app), InCallListener {
     override fun onIncomingCall(call: Call) = _state.update { it.copy(screen = Screen.InCall(call.id), activeCall = ActiveCall(call.id, call.peer)) }
 
     override fun onCallStateChanged(call: Call) {
+        holdTone(call.state is CallState.OnHold)   // OnHold = the other side put us on hold
         val ended = call.state as? CallState.Ended ?: return
         val who = call.peer.displayName
         val why = when (ended.reason) {

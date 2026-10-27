@@ -38,6 +38,7 @@ internal class WebRtcSignallingSipTransport(private val context: Context) : SipT
         }
         c.onBye = { _ -> media?.close(); media = null; val id = currentCallId ?: ""; onMain { events?.onCallStateChanged(CallState.Ended(CallEndReason.ENDED), id) } }
         c.onCancel = { callId -> pendingOffer = null; onMain { events?.onCallStateChanged(CallState.Ended(CallEndReason.MISSED), callId) } }
+        c.onReOffer = { offer -> withContext(Dispatchers.Default) { (media ?: throw InCallException.MediaFailed("no call")).reAnswer(offer) } }
         c.onRemoteHold = { held -> val id = currentCallId ?: ""; onMain { events?.onCallStateChanged(if (held) CallState.OnHold else CallState.Connected, id) } }
         client = c
         c.connect()
@@ -131,8 +132,14 @@ internal class WebRtcSignallingSipTransport(private val context: Context) : SipT
     override suspend fun setMuted(muted: Boolean) { media?.setMuted(muted) }
     /** Hold: tell the other side (re-INVITE, a=sendonly) and stop sending our audio; resume reverses both. */
     override suspend fun setHold(held: Boolean) {
-        media?.setHold(held)
-        val ok = client?.hold(held) ?: false
+        val m = media ?: return
+        val c = client ?: return
+        m.setHold(held)
+        val ok = runCatching {
+            val offer = withContext(Dispatchers.Default) { m.reOffer(held) }   // the engine writes the hold SDP
+            val answer = c.reInvite(offer) ?: throw InCallException.Network("refused")
+            withContext(Dispatchers.Default) { m.setAnswer(answer) }
+        }.isSuccess
         if (!ok) onMain { events?.onFailure(InCallException.Network(if (held) "couldn't put the call on hold" else "couldn't resume the call")) }
     }
     override suspend fun setAudioRoute(route: AudioRoute) {}          // via ConnectionService / AudioManager

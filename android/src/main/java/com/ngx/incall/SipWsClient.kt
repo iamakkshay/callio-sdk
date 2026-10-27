@@ -1,6 +1,10 @@
 package com.ngx.incall
 
 import kotlinx.coroutines.CancellableContinuation
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
@@ -23,6 +27,7 @@ internal class SipWsClient(private val cfg: Config) {
     data class Config(val wss: String, val realm: String, val sipUser: String, val authUser: String, val password: String)
 
     private val http = OkHttpClient()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var ws: WebSocket? = null
     private val lock = Any()
     private var cseq = 0
@@ -51,6 +56,8 @@ internal class SipWsClient(private val cfg: Config) {
     var onBye: ((callId: String) -> Unit)? = null
     /** The other side put the call on hold (true) or resumed it (false). */
     var onRemoteHold: ((held: Boolean) -> Unit)? = null
+    /** Answers the other side's re-offer (hold/resume) from the live WebRTC connection. Without it we echo our last SDP. */
+    var onReOffer: (suspend (offerSdp: String) -> String)? = null
     /** The caller gave up (or the proxy timed the call out) before we answered. */
     var onCancel: ((callId: String) -> Unit)? = null
 
@@ -195,12 +202,11 @@ internal class SipWsClient(private val cfg: Config) {
     }
 
     /**
-     * Put the established call on hold (or take it off): a re-INVITE carrying our last SDP with its
-     * direction set to sendonly (held) or sendrecv, so the other side knows. Returns false if refused.
+     * Re-negotiate the established call (hold or resume): send [sdp] as an in-dialog INVITE and return the
+     * other side's answer SDP, or null if refused or unanswered. Every final reply is ACKed.
      */
-    suspend fun hold(held: Boolean): Boolean {
-        val d = dialog ?: return false
-        val sdp = d.localSdp.replace(Regex("a=(sendrecv|sendonly|recvonly|inactive)"), if (held) "a=sendonly" else "a=sendrecv")
+    suspend fun reInvite(sdp: String): String? {
+        val d = dialog ?: return null
         val n = nextCseq()
         val resp = withTimeoutOrNull(8000) {
             suspendCancellableCoroutine<SipMessage> { cont ->
@@ -212,8 +218,12 @@ internal class SipWsClient(private val cfg: Config) {
             }
         }
         synchronized(lock) { pending.remove(n) }
-        if (resp != null) sendInDialog("ACK", d, n)   // every final answer to an INVITE is ACKed
-        return resp?.statusCode?.let { it / 100 == 2 } == true
+        if (resp != null) sendInDialog("ACK", d, n)
+        if (resp?.statusCode?.let { it / 100 == 2 } == true) {
+            dialog = d.copy(localSdp = sdp)
+            return resp.body
+        }
+        return null
     }
 
     /** Hang up an established call: in-dialog BYE, wait (briefly) for its 200. */
@@ -305,7 +315,7 @@ internal class SipWsClient(private val cfg: Config) {
                 onChatMessage?.invoke(aorUser(m.header("From")), m.body)
             }
             "INVITE" -> {
-                if (tagOf(m.header("To")).isNotEmpty()) { reInvite(m); return }   // inside a call: hold or resume
+                if (tagOf(m.header("To")).isNotEmpty()) { inboundReInvite(m); return }   // inside a call: hold or resume
                 val cid = m.header("Call-ID") ?: callId
                 if (incomingInvite?.header("Call-ID") == cid) return   // a retransmission of the one ringing
                 if (incomingInvite != null || dialog != null) { respond(m, 486, "Busy Here"); return }   // already ringing or on a call
@@ -336,23 +346,23 @@ internal class SipWsClient(private val cfg: Config) {
 
     /**
      * A re-INVITE on the established call: the other side holds (a=sendonly / a=inactive) or resumes
-     * (a=sendrecv). Answer with the SDP we already sent, its direction mirrored, so the call carries on.
+     * (a=sendrecv). The WebRTC connection answers it ([onReOffer]); the answer has to come from there, or the
+     * other side can't apply it and drops the call.
      */
-    private fun reInvite(m: SipMessage) {
+    private fun inboundReInvite(m: SipMessage) {
         val d = dialog
         if (d == null || m.header("Call-ID") != d.callId) { respond(m, 481, "Call/Transaction Does Not Exist"); return }
         val offer = m.body
-        val (ours, held) = when {
-            offer.contains("a=sendonly") -> "a=recvonly" to true
-            offer.contains("a=inactive") -> "a=inactive" to true
-            offer.contains("a=recvonly") -> "a=sendonly" to false
-            else -> "a=sendrecv" to false
-        }
-        val answer = if (d.localSdp.isEmpty()) "" else
-            d.localSdp.replace(Regex("a=(sendrecv|sendonly|recvonly|inactive)"), ours)
+        val held = offer.contains("a=sendonly") || offer.contains("a=inactive")
         respond(m, 100, "Trying")
-        respond(m, 200, "OK", answer, withDialog = true)
-        onRemoteHold?.invoke(held)
+        scope.launch {
+            val answer = onReOffer?.let { runCatching { it(offer) }.getOrNull() }
+                ?: d.localSdp.replace(Regex("a=(sendrecv|sendonly|recvonly|inactive)"),
+                    when { offer.contains("a=sendonly") -> "a=recvonly"; offer.contains("a=inactive") -> "a=inactive"; offer.contains("a=recvonly") -> "a=sendonly"; else -> "a=sendrecv" })
+            dialog = dialog?.copy(localSdp = answer)
+            respond(m, 200, "OK", answer, withDialog = true)
+            onRemoteHold?.invoke(held)
+        }
     }
 
     private fun nextCseq(): Int = synchronized(lock) { ++cseq }
