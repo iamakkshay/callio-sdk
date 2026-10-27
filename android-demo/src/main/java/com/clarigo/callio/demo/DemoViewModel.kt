@@ -1,8 +1,6 @@
 package com.clarigo.callio.demo
 
 import android.app.Application
-import android.media.AudioAttributes
-import android.media.MediaPlayer
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.ngx.incall.*
@@ -41,19 +39,6 @@ class DemoViewModel(app: Application) : AndroidViewModel(app), InCallListener {
 
     var client: InCallClient? = null
         private set
-
-    // While the other person has us on hold: the hold music, looped, on the call's audio route.
-    private var holdMusic: MediaPlayer? = null
-    private fun holdTone(on: Boolean) {
-        if (!on) { holdMusic?.run { runCatching { stop() }; release() }; holdMusic = null; return }
-        if (holdMusic != null) return
-        holdMusic = runCatching {
-            MediaPlayer.create(getApplication(), R.raw.hold_music,
-                AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build(), 0)
-                ?.apply { isLooping = true; setVolume(0.6f, 0.6f); start() }
-        }.getOrNull()
-    }
 
     fun signIn(server: String, org: String, user: String, password: String) {
         val base = server.trim().trimEnd('/')
@@ -129,7 +114,6 @@ class DemoViewModel(app: Application) : AndroidViewModel(app), InCallListener {
     override fun onIncomingCall(call: Call) = _state.update { it.copy(screen = Screen.InCall(call.id), activeCall = ActiveCall(call.id, call.peer)) }
 
     override fun onCallStateChanged(call: Call) {
-        holdTone(call.state is CallState.OnHold)   // OnHold = the other side put us on hold
         val ended = call.state as? CallState.Ended ?: return
         val who = call.peer.displayName
         val why = when (ended.reason) {
@@ -151,5 +135,5 @@ class DemoViewModel(app: Application) : AndroidViewModel(app), InCallListener {
 
     override fun onFailure(error: InCallException) = _state.update { it.copy(error = error.message) }
 
-    override fun onCleared() { holdTone(false); signOut() }
+    override fun onCleared() { signOut() }
 }
