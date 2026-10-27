@@ -35,7 +35,15 @@ final class SignallingSIPTransport: SIPTransport {
             self?.pendingOffer = offer; self?.currentCallId = callId
             self?.onMain { self?.events?.transport(incomingCallFrom: fromSip, callId: callId) }
         }
-        c.onBye = { [weak self] callId in self?.onMain { self?.events?.transport(callDidChange: .ended(.ended), callId: callId) } }
+        c.onBye = { [weak self] _ in
+            self?.closeMedia()
+            let id = self?.currentCallId ?? ""
+            self?.onMain { self?.events?.transport(callDidChange: .ended(.ended), callId: id) }
+        }
+        c.onCancel = { [weak self] callId in
+            self?.pendingOffer = nil
+            self?.onMain { self?.events?.transport(callDidChange: .ended(.missed), callId: callId) }
+        }
         client = c
         try c.connect()
         try await c.register()
@@ -92,11 +100,29 @@ final class SignallingSIPTransport: SIPTransport {
         let m = WebRTCMedia(session: s, forceRelay: forceRelay); media = m
         m.onQuality = { [weak self] q in self?.onMain { self?.events?.transport(qualityDidUpdate: q, callId: self?.currentCallId ?? "") } }
         let offer = try await m.createOffer()                 // fix #2: candidate-laden offer
-        let answerSdp = try await c.invite(toSip: sipUser, sdpOffer: offer)
-        try await m.setAnswer(answerSdp)
         let id = "call-" + UUID().uuidString.prefix(8).description
         currentCallId = id
-        onMain { self.events?.transport(callDidChange: .connected, callId: id) }
+        // Return straight away so the app can show the call; ringing, answer or refusal arrive as events.
+        Task { [weak self] in
+            do {
+                let answerSdp = try await c.invite(toSip: sipUser, sdpOffer: offer) { status in
+                    if (180...183).contains(status) { self?.onMain { self?.events?.transport(callDidChange: .ringing, callId: id) } }
+                }
+                try await m.setAnswer(answerSdp)
+                self?.onMain { self?.events?.transport(callDidChange: .connected, callId: id) }
+            } catch {
+                m.close(); if self?.media === m { self?.media = nil }
+                let reason: CallEndReason
+                switch (error as? SipWsClient.InviteFailed)?.status {
+                case 486, 600: reason = .busy
+                case 603: reason = .declined
+                case 487: reason = .ended                     // we cancelled it
+                case 408, 480: reason = .noAnswer
+                default: reason = .unreachable
+                }
+                self?.onMain { self?.events?.transport(callDidChange: .ended(reason), callId: id) }
+            }
+        }
         return id
     }
 
@@ -124,9 +150,20 @@ final class SignallingSIPTransport: SIPTransport {
 #endif
 
     // Signalling-only call control — works with or without the WebRTC framework (no media involved).
-    func decline() async { client?.declineIncoming(); pendingOffer = nil }
-    func cancel() async { await client?.bye(); closeMedia() }           // outgoing teardown (dialog or none)
-    func hangup() async { await client?.bye(); closeMedia() }           // in-dialog BYE + release media
+    func decline() async {
+        client?.declineIncoming(); pendingOffer = nil
+        guard let id = currentCallId else { return }
+        onMain { self.events?.transport(callDidChange: .ended(.declined), callId: id) }
+    }
+    func cancel() async { client?.cancelInvite() }   // the INVITE ends with 487; dial()'s task reports the end
+    /// End whatever call there is: decline one that's ringing here, cancel one we're still placing, or BYE a live one.
+    func hangup() async {
+        if pendingOffer != nil { await decline(); return }
+        if let c = client, c.hasOutgoingInvite { c.cancelInvite(); return }
+        await client?.bye(); closeMedia()
+        guard let id = currentCallId else { return }
+        onMain { self.events?.transport(callDidChange: .ended(.ended), callId: id) }
+    }
     func transfer(toSipUser: String) async throws {                     // blind transfer via in-dialog REFER
         guard let c = client else { throw InCallError.notRegistered }
         try await c.refer(toSip: toSipUser)

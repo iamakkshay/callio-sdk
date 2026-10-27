@@ -3,6 +3,19 @@
 All SDKs (iOS, Android, Flutter, React Native) share one version, kept in `VERSION`. Versions follow
 [semantic versioning](https://semver.org): a **major** bump breaks apps, a **minor** adds features, a **patch** fixes.
 
+## 0.2.2
+Fixes found testing the Android demo on a real phone (iOS had the same bugs):
+- Incoming calls: the SDK now replies 100 Trying and 180 Ringing at once. Before, the call server gave up after
+  6 s, so answering did nothing.
+- A call cancelled by the caller now stops ringing (CANCEL → 487), and a remote hang-up is reported.
+- Chat: sending answers the proxy's authentication challenge (every message failed with 407 before), and
+  received messages are acknowledged with 200 OK.
+- Replies to the call server carry every Via (and Record-Route), so they route back to the caller.
+- Each call and message gets its own Call-ID (calls reused one, which broke the second call).
+- `dial()` returns at once and reports Ringing, Connected, or why the call ended (busy, declined, no answer);
+  hanging up a call that hasn't been answered cancels it.
+- Verified against the live call server: chat both ways, ringing past 6 s, answer, hang-up, cancel, decline.
+
 ## 0.2.1
 - Android: `InCallClient` now uses WebRTC calls by default (0.2.0 only registered and chatted unless you wired
   the transport yourself).

@@ -34,14 +34,25 @@ final class SipWsClient: @unchecked Sendable {
         let remoteAor: String     // peer AOR URI (To)
         let remoteTarget: String  // peer Contact (the request-URI for in-dialog requests)
         let remoteTag: String
-        let routes: [String]      // Record-Route values, topmost first
+        let routes: [String]      // the route set, in the order Route headers are sent
+        let callId: String
     }
     private var dialog: Dialog?
+
+    /// The INVITE we sent and haven't had a final answer to, so it can be CANCELled.
+    private struct OutgoingInvite { let target: String; let callId: String; let cseq: Int; let via: String; let from: String; let to: String }
+    private var outgoing: OutgoingInvite?
+    private var onOutgoingProgress: ((Int) -> Void)?
+
+    /// The callee (or the proxy) turned the call down with this final status: 486 busy, 603 declined, 487 cancelled...
+    struct InviteFailed: Error { let status: Int }
 
     /// Inbound requests from the peer. Set before `connect()`.
     var onChatMessage: ((_ fromSip: String, _ body: String) -> Void)?
     var onIncomingInvite: ((_ fromSip: String, _ sdpOffer: String, _ callId: String) -> Void)?
     var onBye: ((_ callId: String) -> Void)?
+    /// The caller gave up (or the proxy timed the call out) before we answered.
+    var onCancel: ((_ callId: String) -> Void)?
 
     init(config: Config) { self.cfg = config }
 
@@ -84,46 +95,95 @@ final class SipWsClient: @unchecked Sendable {
 
     @discardableResult
     func message(toSip: String, contentType: String, body: String) async throws -> String {
-        let n = nextCseq()
         let target = "sip:\(toSip)@\(cfg.realm)"
-        var headers = baseHeaders(method: "MESSAGE", to: target, from: "sip:\(cfg.sipUser)@\(cfg.realm)", cseqNum: n)
-        headers.append(("Content-Type", contentType))
-        let resp = try await request(cseqNum: n, method: "MESSAGE", requestURI: target, headers: headers, body: body)
-        guard resp.statusCode == 200 else { throw InCallError.network("MESSAGE failed (\(resp.statusCode ?? 0))") }
-        return callId
+        let cid = randToken() + "@incall.invalid"
+        func send(auth: String?) async throws -> SipMessage {
+            let n = nextCseq()
+            var headers = baseHeaders(method: "MESSAGE", to: target, from: "sip:\(cfg.sipUser)@\(cfg.realm)", cseqNum: n, callId: cid)
+            headers.append(("Content-Type", contentType))
+            if let auth { headers.append(("Proxy-Authorization", auth)) }
+            return try await request(cseqNum: n, method: "MESSAGE", requestURI: target, headers: headers, body: body)
+        }
+        var resp = try await send(auth: nil)
+        // The proxy challenges every request from us, like INVITE.
+        if resp.statusCode == 407, let ch = resp.header("Proxy-Authenticate").flatMap(DigestAuth.parseChallenge) {
+            let auth = DigestAuth.authorization(username: cfg.authUser, password: cfg.password,
+                                                method: "MESSAGE", uri: target, challenge: ch)
+            resp = try await send(auth: auth)
+        }
+        guard (resp.statusCode ?? 0) / 100 == 2 else { throw InCallError.network("MESSAGE failed (\(resp.statusCode ?? 0))") }
+        return cid
     }
 
     // MARK: - INVITE / BYE (signalling; media SDP supplied by the caller's RTCPeerConnection)
 
     /// Place a call: send INVITE with the caller's gathered SDP offer (fix #2: candidates already in the
-    /// SDP — no trickle), authenticate if challenged, and return the 200's answer SDP.
-    func invite(toSip: String, sdpOffer: String) async throws -> String {
+    /// SDP — no trickle), authenticate if challenged, and return the 200's answer SDP. Each call gets its own
+    /// Call-ID. `onProgress` hears provisional replies (180 = ringing). Throws `InviteFailed` when refused.
+    func invite(toSip: String, sdpOffer: String, onProgress: @escaping (Int) -> Void = { _ in }) async throws -> String {
         let target = "sip:\(toSip)@\(cfg.realm)"
+        let cid = randToken() + "@incall.invalid"
+        setOutgoing(nil, progress: onProgress)
+        defer { setOutgoing(nil, progress: nil) }
         func send(auth: String?) async throws -> SipMessage {
             let n = nextCseq()
-            var headers = baseHeaders(method: "INVITE", to: target, from: "sip:\(cfg.sipUser)@\(cfg.realm)", cseqNum: n)
+            var headers = baseHeaders(method: "INVITE", to: target, from: "sip:\(cfg.sipUser)@\(cfg.realm)", cseqNum: n, callId: cid)
             headers.append(("Contact", "<sip:\(cfg.sipUser)@\(contactHost);transport=ws>"))
             headers.append(("Content-Type", "application/sdp"))
             if let auth { headers.append(("Proxy-Authorization", auth)) }
+            func h(_ name: String) -> String { headers.first { $0.0 == name }?.1 ?? "" }
+            setOutgoing(OutgoingInvite(target: target, callId: cid, cseq: n, via: h("Via"), from: h("From"), to: h("To")), progress: onProgress)
             return try await request(cseqNum: n, method: "INVITE", requestURI: target, headers: headers, body: sdpOffer)
         }
         var resp = try await send(auth: nil)
         if resp.statusCode == 407, let ch = resp.header("Proxy-Authenticate").flatMap(DigestAuth.parseChallenge) {
+            ackFailure(resp)
             let auth = DigestAuth.authorization(username: cfg.authUser, password: cfg.password,
                                                 method: "INVITE", uri: target, challenge: ch)
             resp = try await send(auth: auth)
         }
-        guard resp.statusCode == 200 else { throw InCallError.network("INVITE failed (\(resp.statusCode ?? 0))") }
+        let code = resp.statusCode ?? 500
+        guard code / 100 == 2 else { ackFailure(resp); throw InviteFailed(status: code) }
         // Establish the dialog and ACK the 2xx (a separate transaction to the remote target — RFC 3261
         // §13.2.2.4). Without this the callee retransmits the 200 and tears the call down.
         let localAor = "sip:\(cfg.sipUser)@\(cfg.realm)"
-        dialog = Dialog(localAor: localAor,
-                        remoteAor: target,
-                        remoteTarget: uriOf(resp.header("Contact")) ?? target,
-                        remoteTag: tagOf(resp.header("To")),
-                        routes: resp.headers.filter { $0.name.caseInsensitiveCompare("Record-Route") == .orderedSame }.map { $0.value })
-        if let d = dialog { sendInDialog(method: "ACK", dialog: d, cseqNum: cseqNumber(resp) ?? nextCseq()) }
+        let d = Dialog(localAor: localAor,
+                       remoteAor: target,
+                       remoteTarget: uriOf(resp.header("Contact")) ?? target,
+                       remoteTag: tagOf(resp.header("To")),
+                       routes: resp.headers.filter { $0.name.caseInsensitiveCompare("Record-Route") == .orderedSame }.map { $0.value }.reversed(),
+                       callId: cid)
+        dialog = d
+        sendInDialog(method: "ACK", dialog: d, cseqNum: cseqNumber(resp) ?? nextCseq())
         return resp.body   // the answer SDP, for the peer connection's setRemoteDescription
+    }
+
+    private func setOutgoing(_ o: OutgoingInvite?, progress: ((Int) -> Void)?) {
+        lock.lock(); outgoing = o; onOutgoingProgress = progress; lock.unlock()
+    }
+
+    var hasOutgoingInvite: Bool { lock.lock(); defer { lock.unlock() }; return outgoing != nil }
+
+    /// Give up on the call we're placing before it's answered. The INVITE then ends with 487.
+    func cancelInvite() {
+        lock.lock(); let o = outgoing; lock.unlock()
+        guard let o, let t = task else { return }
+        let raw = SipMessage.buildRequest(method: "CANCEL", requestURI: o.target, headers: [
+            ("Via", o.via), ("Max-Forwards", "70"), ("From", o.from), ("To", o.to),
+            ("Call-ID", o.callId), ("CSeq", "\(o.cseq) CANCEL"),
+        ], body: "")
+        t.send(.string(raw)) { _ in }
+    }
+
+    /// A non-2xx final reply to our INVITE is ACKed in the same transaction (same Via branch), or the proxy keeps resending it.
+    private func ackFailure(_ resp: SipMessage) {
+        lock.lock(); let o = outgoing; lock.unlock()
+        guard let o, let t = task else { return }
+        let raw = SipMessage.buildRequest(method: "ACK", requestURI: o.target, headers: [
+            ("Via", o.via), ("Max-Forwards", "70"), ("From", o.from), ("To", resp.header("To") ?? o.to),
+            ("Call-ID", o.callId), ("CSeq", "\(o.cseq) ACK"),
+        ], body: "")
+        t.send(.string(raw)) { _ in }
     }
 
     /// Send an in-dialog request (ACK/BYE/REFER) to the remote target. ACK for a 2xx reuses the INVITE's
@@ -138,7 +198,7 @@ final class SipWsClient: @unchecked Sendable {
         for r in d.routes { headers.append(("Route", r)) }
         headers.append(("To", "<\(d.remoteAor)>;tag=\(d.remoteTag)"))
         headers.append(("From", "<\(d.localAor)>;tag=\(fromTag)"))
-        headers.append(("Call-ID", callId))
+        headers.append(("Call-ID", d.callId))
         headers.append(("CSeq", "\(cseqNum) \(method)"))
         headers.append(contentsOf: extraHeaders)
         let raw = SipMessage.buildRequest(method: method, requestURI: d.remoteTarget, headers: headers, body: "")
@@ -199,52 +259,83 @@ final class SipWsClient: @unchecked Sendable {
         }
     }
 
-    /// Answer the pending inbound INVITE with 200 OK + the WebRTC answer SDP (echoes the dialog headers,
-    /// adds our To-tag). The caller's ACK then lands as a request we ignore.
+    /// Answer the pending inbound INVITE with 200 OK + the WebRTC answer SDP. The caller's ACK then lands
+    /// as a request we ignore.
     func answerIncoming(sdp: String) {
-        guard let inv = incomingInvite, let w = task else { return }
-        var to = inv.header("To") ?? ""
-        if !to.contains(";tag=") { to += ";tag=\(fromTag)" }
-        let headers: [(String, String)] = [
-            ("Via", inv.header("Via") ?? ""),
-            ("From", inv.header("From") ?? ""),
-            ("To", to),
-            ("Call-ID", inv.header("Call-ID") ?? callId),
-            ("CSeq", inv.header("CSeq") ?? "1 INVITE"),
-            ("Contact", "<sip:\(cfg.sipUser)@\(contactHost);transport=ws>"),
-            ("Content-Type", "application/sdp"),
-        ]
-        w.send(.string(SipMessage.buildResponse(status: 200, reason: "OK", headers: headers, body: sdp))) { _ in }
+        guard let inv = incomingInvite else { return }
+        respond(to: inv, status: 200, reason: "OK", sdp: sdp, withDialog: true)
+        incomingInvite = nil
         // Record the dialog from the inbound INVITE so this (answering) side can send BYE/REFER too.
         dialog = Dialog(localAor: "sip:\(cfg.sipUser)@\(cfg.realm)",
                         remoteAor: uriOf(inv.header("From")) ?? "sip:unknown@\(cfg.realm)",
                         remoteTarget: uriOf(inv.header("Contact")) ?? (uriOf(inv.header("From")) ?? ""),
                         remoteTag: tagOf(inv.header("From")),
-                        routes: inv.headers.filter { $0.name.caseInsensitiveCompare("Record-Route") == .orderedSame }.map { $0.value })
+                        routes: inv.headers.filter { $0.name.caseInsensitiveCompare("Record-Route") == .orderedSame }.map { $0.value },
+                        callId: inv.header("Call-ID") ?? callId)
     }
 
     /// Reject the pending inbound INVITE (decline = 603, busy = 486).
     func declineIncoming(status: Int = 603, reason: String = "Decline") {
-        guard let inv = incomingInvite, let w = task else { return }
-        let headers: [(String, String)] = [
-            ("Via", inv.header("Via") ?? ""), ("From", inv.header("From") ?? ""),
-            ("To", (inv.header("To") ?? "") + ";tag=\(fromTag)"),
-            ("Call-ID", inv.header("Call-ID") ?? callId), ("CSeq", inv.header("CSeq") ?? "1 INVITE"),
-        ]
-        w.send(.string(SipMessage.buildResponse(status: status, reason: reason, headers: headers))) { _ in }
+        guard let inv = incomingInvite else { return }
+        respond(to: inv, status: status, reason: reason)
         incomingInvite = nil
+    }
+
+    /// Reply to an inbound request. A response must carry every Via of the request, in order (the proxy's
+    /// own Via first), or it can't be routed back to the caller; From, Call-ID and CSeq are echoed, and To
+    /// gets our tag. `withDialog` adds Contact and Record-Route, for the 1xx/2xx that set up a call.
+    private func respond(to req: SipMessage, status: Int, reason: String, sdp: String = "", withDialog: Bool = false) {
+        guard let w = task else { return }
+        func named(_ n: String) -> [String] { req.headers.filter { $0.name.caseInsensitiveCompare(n) == .orderedSame }.map { $0.value } }
+        var headers: [(String, String)] = (named("Via") + named("v")).map { ("Via", $0) }
+        if withDialog { headers += named("Record-Route").map { ("Record-Route", $0) } }
+        let to = req.header("To") ?? ""
+        headers.append(("From", req.header("From") ?? ""))
+        headers.append(("To", status == 100 || to.contains(";tag=") ? to : to + ";tag=\(fromTag)"))
+        headers.append(("Call-ID", req.header("Call-ID") ?? callId))
+        headers.append(("CSeq", req.header("CSeq") ?? "1 \(req.method ?? "")"))
+        if withDialog { headers.append(("Contact", "<sip:\(cfg.sipUser)@\(contactHost);transport=ws>")) }
+        if !sdp.isEmpty { headers.append(("Content-Type", "application/sdp")) }
+        w.send(.string(SipMessage.buildResponse(status: status, reason: reason, headers: headers, body: sdp))) { _ in }
     }
 
     private func handle(_ m: SipMessage) {
         if let code = m.statusCode {                 // a response to one of our requests
-            guard code >= 200 else { return }        // ignore provisional 1xx
-            if let n = cseqNumber(m) { takePending(n)?.resume(returning: m) }
+            if m.header("CSeq")?.trimmingCharacters(in: .whitespaces).uppercased().hasSuffix("CANCEL") == true { return }   // shares the INVITE's CSeq number
+            if code >= 200 {
+                if let n = cseqNumber(m) { takePending(n)?.resume(returning: m) }
+            } else if code > 100 {
+                lock.lock(); let o = outgoing; let progress = onOutgoingProgress; lock.unlock()
+                if let o, cseqNumber(m) == o.cseq, m.header("Call-ID") == o.callId { progress?(code) }
+            }
             return
         }
         switch m.method {                            // an inbound request from the peer
-        case "MESSAGE": onChatMessage?(aorUser(m.header("From")), m.body)
-        case "INVITE":  incomingInvite = m; onIncomingInvite?(aorUser(m.header("From")), m.body, m.header("Call-ID") ?? callId)
-        case "BYE":     dialog = nil; onBye?(m.header("Call-ID") ?? callId)
+        case "MESSAGE":
+            respond(to: m, status: 200, reason: "OK")   // without this the sender sees the message fail
+            onChatMessage?(aorUser(m.header("From")), m.body)
+        case "INVITE":
+            let cid = m.header("Call-ID") ?? callId
+            if incomingInvite?.header("Call-ID") == cid { return }   // a retransmission of the one ringing
+            if incomingInvite != nil { respond(to: m, status: 486, reason: "Busy Here"); return }   // another call is already ringing
+            incomingInvite = m
+            // Tell the caller we're ringing at once: the proxy gives up on a silent device after a few seconds.
+            respond(to: m, status: 100, reason: "Trying")
+            respond(to: m, status: 180, reason: "Ringing", withDialog: true)
+            onIncomingInvite?(aorUser(m.header("From")), m.body, cid)
+        case "CANCEL":
+            respond(to: m, status: 200, reason: "OK")
+            if let inv = incomingInvite, inv.header("Call-ID") == m.header("Call-ID") {
+                respond(to: inv, status: 487, reason: "Request Terminated")
+                incomingInvite = nil
+                onCancel?(m.header("Call-ID") ?? callId)
+            }
+        case "BYE":
+            respond(to: m, status: 200, reason: "OK")
+            dialog = nil
+            onBye?(m.header("Call-ID") ?? callId)
+        case "OPTIONS":
+            respond(to: m, status: 200, reason: "OK")
         default: break
         }
     }
@@ -272,12 +363,12 @@ final class SipWsClient: @unchecked Sendable {
         }
     }
 
-    private func baseHeaders(method: String, to: String, from: String, cseqNum: Int) -> [(String, String)] {
+    private func baseHeaders(method: String, to: String, from: String, cseqNum: Int, callId cid: String? = nil) -> [(String, String)] {
         [("Via", "SIP/2.0/WS \(contactHost);branch=z9hG4bK\(randToken())"),
          ("Max-Forwards", "70"),
          ("From", "<\(from)>;tag=\(fromTag)"),
          ("To", "<\(to)>"),
-         ("Call-ID", callId),
+         ("Call-ID", cid ?? callId),
          ("CSeq", "\(cseqNum) \(method)"),
          ("User-Agent", "InCallSDK-ios/\(InCallSDKVersion.current)")]
     }

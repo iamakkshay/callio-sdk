@@ -5,6 +5,10 @@ package com.ngx.incall
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.util.UUID
 
@@ -19,6 +23,7 @@ internal class WebRtcSignallingSipTransport(private val context: Context) : SipT
     private var currentCallId: String? = null
 
     private val main = Handler(Looper.getMainLooper())
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private fun onMain(block: () -> Unit) { main.post(block) }
 
     override suspend fun register(session: Session, forceRelay: Boolean) {
@@ -30,7 +35,8 @@ internal class WebRtcSignallingSipTransport(private val context: Context) : SipT
             pendingOffer = offer; currentCallId = callId
             onMain { events?.onIncomingCall(fromSip, callId) }
         }
-        c.onBye = { callId -> media?.close(); media = null; onMain { events?.onCallStateChanged(CallState.Ended(CallEndReason.ENDED), callId) } }
+        c.onBye = { _ -> media?.close(); media = null; val id = currentCallId ?: ""; onMain { events?.onCallStateChanged(CallState.Ended(CallEndReason.ENDED), id) } }
+        c.onCancel = { callId -> pendingOffer = null; onMain { events?.onCallStateChanged(CallState.Ended(CallEndReason.MISSED), callId) } }
         client = c
         c.connect()
         c.register()
@@ -47,11 +53,29 @@ internal class WebRtcSignallingSipTransport(private val context: Context) : SipT
         val m = WebRtcMedia(context, s, forceRelay).also { media = it }
         m.onQuality = { q -> onMain { events?.onQualityUpdated(q, currentCallId ?: "") } }
         val offer = m.createOffer()                        // fix #2
-        val answer = c.invite(sipUser, offer)
-        m.setAnswer(answer)
         val id = "call-" + UUID.randomUUID().toString().substring(0, 8)
         currentCallId = id
-        onMain { events?.onCallStateChanged(CallState.Connected, id) }
+        // Return straight away so the app can show the call; ringing, answer or refusal arrive as events.
+        scope.launch {
+            try {
+                val answer = c.invite(sipUser, offer) { status ->
+                    if (status in 180..183) onMain { events?.onCallStateChanged(CallState.Ringing, id) }
+                }
+                m.setAnswer(answer)
+                onMain { events?.onCallStateChanged(CallState.Connected, id) }
+            } catch (e: Exception) {
+                m.close(); if (media === m) media = null
+                val reason = when ((e as? SipWsClient.InviteFailed)?.status) {
+                    486, 600 -> CallEndReason.BUSY
+                    603 -> CallEndReason.DECLINED
+                    487 -> CallEndReason.ENDED                  // we cancelled it
+                    408, 480 -> CallEndReason.NO_ANSWER
+                    404 -> CallEndReason.UNREACHABLE
+                    else -> CallEndReason.UNREACHABLE
+                }
+                onMain { events?.onCallStateChanged(CallState.Ended(reason), id) }
+            }
+        }
         return id
     }
 
@@ -67,9 +91,21 @@ internal class WebRtcSignallingSipTransport(private val context: Context) : SipT
         onMain { events?.onCallStateChanged(CallState.Connected, currentCallId ?: "") }
     }
 
-    override suspend fun decline() { client?.declineIncoming(); pendingOffer = null }
-    override suspend fun cancel() { client?.bye(); media?.close(); media = null }
-    override suspend fun hangup() { client?.bye(); media?.close(); media = null }   // in-dialog BYE + release media
+    override suspend fun decline() {
+        client?.declineIncoming(); pendingOffer = null
+        val id = currentCallId ?: return
+        onMain { events?.onCallStateChanged(CallState.Ended(CallEndReason.DECLINED), id) }
+    }
+    override suspend fun cancel() { client?.cancelInvite() }   // the INVITE ends with 487; dial()'s coroutine cleans up
+    /** End whatever call there is: decline one that's ringing here, cancel one we're still placing, or BYE a live one. */
+    override suspend fun hangup() {
+        if (pendingOffer != null) { decline(); return }
+        val c = client
+        if (c != null && c.hasOutgoingInvite()) { c.cancelInvite(); return }   // dial()'s coroutine reports the end
+        c?.bye(); media?.close(); media = null
+        val id = currentCallId ?: return
+        onMain { events?.onCallStateChanged(CallState.Ended(CallEndReason.ENDED), id) }
+    }
     override suspend fun setMuted(muted: Boolean) { media?.setMuted(muted) }
     override suspend fun setHold(held: Boolean) { media?.setHold(held) }
     override suspend fun setAudioRoute(route: AudioRoute) {}          // via ConnectionService / AudioManager

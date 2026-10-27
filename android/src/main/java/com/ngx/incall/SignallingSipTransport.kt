@@ -26,6 +26,7 @@ internal class SignallingSipTransport : SipTransport {
         c.onChatMessage = { fromSip, body -> handleInbound(fromSip, body) }
         c.onIncomingInvite = { fromSip, _, callId -> onMain { events?.onIncomingCall(fromSip, callId) } }
         c.onBye = { callId -> onMain { events?.onCallStateChanged(CallState.Ended(CallEndReason.ENDED), callId) } }
+        c.onCancel = { callId -> onMain { events?.onCallStateChanged(CallState.Ended(CallEndReason.MISSED), callId) } }
         client = c
         c.connect()
         c.register()
@@ -66,7 +67,7 @@ internal class SignallingSipTransport : SipTransport {
     // Call control — requires the WebRTC media layer (throws until wired).
     override suspend fun dial(sipUser: String): String = throw needsMedia()
     override suspend fun answer() = throw needsMedia()
-    override suspend fun decline() {}
+    override suspend fun decline() { client?.declineIncoming() }
     override suspend fun cancel() {}
     override suspend fun hangup() {}
     override suspend fun setMuted(muted: Boolean) {}

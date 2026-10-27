@@ -13,5 +13,5 @@ Pod::Spec.new do |s|
   s.source_files = 'ios/**/*.{swift,m}'
   s.swift_version = '5.9'
   s.dependency 'React-Core'
-  s.dependency 'InCallSDK', '~> 0.2.1'
+  s.dependency 'InCallSDK', '~> 0.2.2'
 end

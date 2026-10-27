@@ -1,6 +1,6 @@
 // Gradle for the incall_flutter Android plugin. The native Callio Android SDK comes from JitPack.
 group 'com.ngx.incall.flutter'
-version '0.2.1'
+version '0.2.2'
 
 buildscript {
     ext.kotlin_version = '1.9.24'
@@ -27,5 +27,5 @@ android {
 dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
-    implementation 'com.github.iamakkshay.callio-sdk:incall-sdk:0.2.1'   // the native Callio Android SDK
+    implementation 'com.github.iamakkshay.callio-sdk:incall-sdk:0.2.2'   // the native Callio Android SDK
 }
