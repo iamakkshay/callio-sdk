@@ -89,7 +89,17 @@ class DemoViewModel(app: Application) : AndroidViewModel(app), InCallListener {
     override fun onIncomingCall(call: Call) = _state.update { it.copy(screen = Screen.InCall(call.id)) }
 
     override fun onCallStateChanged(call: Call) {
-        if (call.state !is CallState.Ended) return
+        val ended = call.state as? CallState.Ended ?: return
+        val who = call.peer.displayName
+        val why = when (ended.reason) {
+            CallEndReason.BUSY -> "$who is on another call"
+            CallEndReason.DECLINED -> if (call.direction == CallDirection.OUTGOING) "$who declined the call" else null
+            CallEndReason.NO_ANSWER -> "$who didn't answer"
+            CallEndReason.UNREACHABLE -> "Couldn't reach $who"
+            CallEndReason.MISSED -> "Missed call from $who"
+            CallEndReason.ENDED -> null
+        }
+        _state.update { it.copy(error = why) }
         viewModelScope.launch {
             delay(1500)   // leave "Call ended" on screen for a moment
             _state.update { s -> if (s.screen == Screen.InCall(call.id)) s.copy(screen = Screen.Home) else s }

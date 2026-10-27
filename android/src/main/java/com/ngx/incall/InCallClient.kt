@@ -181,8 +181,12 @@ class InCallClient internal constructor(
         emit { it.onCallStateChanged(call) }
         when (state) {
             is CallState.Ringing -> scope.launch { api.emitEvent("call.ringing", callId, call.peer.sipUser) }
-            is CallState.Connected -> scope.launch { api.emitEvent("call.connected", callId, call.peer.sipUser) }
+            is CallState.Connected -> {
+                audio.startCall()   // voice-call audio mode: echo cancellation, earpiece, Bluetooth
+                scope.launch { api.emitEvent("call.connected", callId, call.peer.sipUser) }
+            }
             is CallState.Ended -> {
+                audio.endCall()
                 scope.launch { api.emitEvent("call.ended", callId, call.peer.sipUser,
                     JSONObject().put("reason", state.reason.wire).put("client", clientInfo())) }
                 if (currentCall?.id == callId) currentCall = null

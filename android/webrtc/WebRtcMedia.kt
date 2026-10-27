@@ -36,9 +36,11 @@ internal class WebRtcMedia(context: Context, session: Session, private val force
     var onQuality: ((CallQuality) -> Unit)? = null
 
     init {
-        PeerConnectionFactory.initialize(
-            PeerConnectionFactory.InitializationOptions.builder(context.applicationContext).createInitializationOptions()
-        )
+        if (initialized.compareAndSet(false, true)) {   // once per process; it loads the native library
+            PeerConnectionFactory.initialize(
+                PeerConnectionFactory.InitializationOptions.builder(context.applicationContext).createInitializationOptions()
+            )
+        }
         factory = PeerConnectionFactory.builder().createPeerConnectionFactory()
 
         val iceServers = buildList {
@@ -90,10 +92,10 @@ internal class WebRtcMedia(context: Context, session: Session, private val force
     fun setHold(held: Boolean) { audioTrack.setEnabled(!held) }   // minimal hold; true hold re-INVITEs (TODO)
     fun close() { scope.coroutineContext[kotlinx.coroutines.Job]?.cancel(); pc.close(); pc.dispose(); factory.dispose() }
 
-    // fix #2: gather to a relay candidate (or complete, or a 4s cap)
+    // fix #2: gather to a relay candidate (or complete, or a 2.5 s cap: an unreachable TURN server mustn't hold the call up)
     private suspend fun gatherIce() {
         if (pc.iceGatheringState() == PeerConnection.IceGatheringState.COMPLETE || gatherDone) return
-        withTimeoutOrNull(4000L) {
+        withTimeoutOrNull(2500L) {
             suspendCancellableCoroutine<Unit> { cont ->
                 synchronized(lock) { if (gatherDone) cont.resume(Unit) else gatherCont = cont }
             }
@@ -180,6 +182,8 @@ internal class WebRtcMedia(context: Context, session: Session, private val force
     }
 
     companion object {
+        private val initialized = java.util.concurrent.atomic.AtomicBoolean(false)
+
         /** Expand a bare TURN URL to UDP/TCP/TLS (fix #3). */
         fun turnUrls(url: String): List<String> {
             val host = url.substringAfter(":").substringBefore("?").substringBefore(":")

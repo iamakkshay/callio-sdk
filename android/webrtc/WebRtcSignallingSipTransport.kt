@@ -9,6 +9,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.util.UUID
 
@@ -50,9 +51,10 @@ internal class WebRtcSignallingSipTransport(private val context: Context) : SipT
     override suspend fun dial(sipUser: String): String {
         val c = client ?: throw InCallException.NotRegistered
         val s = session ?: throw InCallException.NotRegistered
-        val m = WebRtcMedia(context, s, forceRelay).also { media = it }
+        // WebRTC set-up is heavy (native audio engine, ICE gathering): keep it off the app's main thread.
+        val m = withContext(Dispatchers.Default) { WebRtcMedia(context, s, forceRelay) }.also { media = it }
         m.onQuality = { q -> onMain { events?.onQualityUpdated(q, currentCallId ?: "") } }
-        val offer = m.createOffer()                        // fix #2
+        val offer = withContext(Dispatchers.Default) { m.createOffer() }   // fix #2
         val id = "call-" + UUID.randomUUID().toString().substring(0, 8)
         currentCallId = id
         // Return straight away so the app can show the call; ringing, answer or refusal arrive as events.
@@ -64,6 +66,11 @@ internal class WebRtcSignallingSipTransport(private val context: Context) : SipT
                 m.setAnswer(answer)
                 onMain { events?.onCallStateChanged(CallState.Connected, id) }
             } catch (e: Exception) {
+                // Answered, but our media couldn't start: hang up, or the other side stays in the call.
+                if (e !is SipWsClient.InviteFailed) {
+                    runCatching { c.bye() }
+                    onMain { events?.onFailure(e as? InCallException ?: InCallException.MediaFailed(e.message ?: "media")) }
+                }
                 m.close(); if (media === m) media = null
                 val reason = when ((e as? SipWsClient.InviteFailed)?.status) {
                     486, 600 -> CallEndReason.BUSY
@@ -83,9 +90,15 @@ internal class WebRtcSignallingSipTransport(private val context: Context) : SipT
         val c = client ?: throw InCallException.NotRegistered
         val s = session ?: throw InCallException.NotRegistered
         val offer = pendingOffer ?: throw InCallException.MediaFailed("no pending call")
-        val m = WebRtcMedia(context, s, forceRelay).also { media = it }
+        val m = withContext(Dispatchers.Default) { WebRtcMedia(context, s, forceRelay) }.also { media = it }
         m.onQuality = { q -> onMain { events?.onQualityUpdated(q, currentCallId ?: "") } }
-        val answerSdp = m.acceptOffer(offer)               // fix #1
+        val answerSdp = try {
+            withContext(Dispatchers.Default) { m.acceptOffer(offer) }   // fix #1
+        } catch (e: Exception) {   // can't start media: refuse the call rather than leave it ringing
+            m.close(); media = null
+            decline()
+            throw e as? InCallException ?: InCallException.MediaFailed(e.message ?: "media")
+        }
         c.answerIncoming(answerSdp)
         pendingOffer = null
         onMain { events?.onCallStateChanged(CallState.Connected, currentCallId ?: "") }
