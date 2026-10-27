@@ -1,0 +1,24 @@
+name: Publish to CocoaPods
+
+# Run from the Actions tab (or `gh workflow run cocoapods.yml -f ref=0.2.1`) after tagging a release.
+# Needs the repository secret COCOAPODS_TRUNK_TOKEN: the trunk session token from `pod trunk register`.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Release tag to publish
+        required: true
+
+jobs:
+  publish:
+    runs-on: macos-14
+    env:
+      COCOAPODS_TRUNK_TOKEN: ${{ secrets.COCOAPODS_TRUNK_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - name: InCallSDK
+        run: pod trunk push InCallSDK.podspec --allow-warnings --skip-tests --synchronous
+      - name: InCallUI
+        run: pod trunk push InCallUI.podspec --allow-warnings --skip-tests --synchronous
