@@ -176,14 +176,22 @@ final class SignallingSIPTransport: SIPTransport {
             onMain { self.events?.transport(didFail: .network(held ? "couldn't put the call on hold" : "couldn't resume the call")) }
         }
     }
-    func sendDTMF(_ tone: String) async {}                   // TODO: RTCRtpSender.insertDtmf
+    /// RFC 4733 telephone-events through the WebRTC DTMF sender. Digits are never logged.
+    func sendDTMF(_ tone: String) async {
+        let tones = tone.uppercased()
+        guard !tones.isEmpty, tones.allSatisfy({ "0123456789*#ABCD".contains($0) }),
+              let m = media, m.sendDTMF(tones) else {
+            onMain { self.events?.transport(didFail: .mediaFailed("DTMF couldn't be sent")) }
+            return
+        }
+    }
     private func closeMedia() { media?.close(); media = nil }
 #else
     func dial(to sipUser: String) async throws -> String { throw noMedia }
     func answer() async throws { throw noMedia }
     func setMuted(_ muted: Bool) async {}
     func setHold(_ held: Bool) async {}
-    func sendDTMF(_ tone: String) async {}
+    func sendDTMF(_ tone: String) async { onMain { self.events?.transport(didFail: self.noMedia) } }
     private func closeMedia() {}
 #endif
 

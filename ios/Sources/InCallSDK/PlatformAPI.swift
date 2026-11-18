@@ -9,9 +9,13 @@ actor PlatformAPI {
     private let tokenProvider: @Sendable () async throws -> String
     private var cachedToken: String?
 
-    init(baseURL: URL, tokenProvider: @escaping @Sendable () async throws -> String) {
+    /// Sent as X-Device-Id on every request: the platform ties each app token to one device.
+    private let deviceId: String?
+
+    init(baseURL: URL, tokenProvider: @escaping @Sendable () async throws -> String, deviceId: String? = nil) {
         self.baseURL = baseURL
         self.tokenProvider = tokenProvider
+        self.deviceId = deviceId
         self.session = URLSession(configuration: .ephemeral)
     }
 
@@ -99,6 +103,7 @@ actor PlatformAPI {
         var req = request
         req.setValue("Bearer \(try await token())", forHTTPHeaderField: "Authorization")
         req.setValue("ios/\(InCallSDKVersion.current)", forHTTPHeaderField: "X-SDK-Version")   // FR-SDK-10
+        if let deviceId { req.setValue(deviceId, forHTTPHeaderField: "X-Device-Id") }
         let (data, resp): (Data, URLResponse)
         do { (data, resp) = try await session.data(for: req) }
         catch { throw InCallError.network(error.localizedDescription) }

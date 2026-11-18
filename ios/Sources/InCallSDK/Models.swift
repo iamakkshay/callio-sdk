@@ -31,6 +31,10 @@ public struct Contact: Codable, Sendable, Equatable, Identifiable {
     public let displayName: String
     public let userType: UserType
     public var id: String { name }
+
+    public init(name: String, sipUser: String, displayName: String, userType: UserType) {
+        self.name = name; self.sipUser = sipUser; self.displayName = displayName; self.userType = userType
+    }
 }
 
 public enum CallDirection: String, Codable, Sendable { case incoming, outgoing }
@@ -68,6 +72,10 @@ public struct SharedLocation: Codable, Sendable, Equatable {
     public let lat: Double
     public let lng: Double
     public let label: String
+
+    public init(lat: Double, lng: Double, label: String = "Shared location") {
+        self.lat = lat; self.lng = lng; self.label = label
+    }
 }
 
 /// Someone invites this user into a 3-way call. Join with `InCallClient.joinConference(_:)`.

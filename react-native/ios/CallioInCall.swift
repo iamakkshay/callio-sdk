@@ -56,10 +56,11 @@ final class CallioInCall: RCTEventEmitter, InCallClientDelegate {
         if let token, !token.isEmpty { settleToken(requestId, .success(token)) } else { settleToken(requestId, .failure(InCallError.tokenExpired)) }
     }
 
-    @objc func start(_ baseUrl: String, forceRelay: Bool, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
+    @objc func start(_ baseUrl: String, forceRelay: Bool, allowInsecureTransport: Bool, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
         run(reject, "start") {
             guard let url = URL(string: baseUrl) else { throw InCallError.network("invalid baseUrl") }
-            let config = InCallConfig(baseURL: url, forceRelay: forceRelay) { try await self.tokenFromJS() }
+            let config = InCallConfig(baseURL: url, forceRelay: forceRelay,
+                                      allowInsecureTransport: allowInsecureTransport) { try await self.tokenFromJS() }
             let c = InCallClient(config: config); c.delegate = self; self.client = c
             try await c.start()
             resolve(nil)

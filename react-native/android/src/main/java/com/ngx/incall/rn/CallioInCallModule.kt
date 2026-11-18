@@ -50,8 +50,9 @@ class CallioInCallModule(private val ctx: ReactApplicationContext) : ReactContex
         pendingTokens.remove(requestId)?.complete(token?.takeIf { it.isNotEmpty() })
     }
 
-    @ReactMethod fun start(baseUrl: String, forceRelay: Boolean, promise: Promise) = run(promise, "start") {
-        val c = InCallClient(ctx.applicationContext, InCallConfig(baseUrl, forceRelay) { tokenFromJS() })
+    @ReactMethod fun start(baseUrl: String, forceRelay: Boolean, allowInsecureTransport: Boolean, promise: Promise) = run(promise, "start") {
+        val c = InCallClient(ctx.applicationContext,
+            InCallConfig(baseUrl, forceRelay, allowInsecureTransport = allowInsecureTransport) { tokenFromJS() })
         c.addListener(this)
         client = c
         c.start()

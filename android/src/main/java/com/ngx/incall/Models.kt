@@ -120,4 +120,11 @@ data class Session(
     val turn: String?,
     val turnUser: String?,
     val turnPassword: String?,
-)
+) {
+    /** The SIP and TURN passwords are left out, so logging a Session never leaks them. */
+    override fun toString(): String =
+        "Session(tenant=$tenant, user=$user, userType=$userType, features=$features, peers=$peers, " +
+            "transferTargets=$transferTargets, directory=$directory, wss=$wss, realm=$realm, sipUser=$sipUser, " +
+            "authUser=$authUser, sipPassword=<redacted>, stun=$stun, turn=$turn, turnUser=$turnUser, " +
+            "turnPassword=${if (turnPassword == null) "null" else "<redacted>"})"
+}

@@ -5,7 +5,7 @@ The native call experience (FR-CALL-02/03/04) is part of the SDKs. A host app on
 - creates the bridge once;
 - on Android, forwards FCM messages.
 
-The Callio platform sends the wake-up push.
+The platform sends the wake-up push (`services/platform-api/src/repos/push.js`).
 
 ```
  Caller dials ─► platform ──(call.ringing)──► push (APNs VoIP / FCM data)

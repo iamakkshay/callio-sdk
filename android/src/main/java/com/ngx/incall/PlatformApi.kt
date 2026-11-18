@@ -17,6 +17,8 @@ import org.json.JSONObject
 internal class PlatformApi(
     private val baseUrl: String,
     private val tokenProvider: suspend () -> String,
+    /** Sent as X-Device-Id on every request: the platform ties each app token to one device. */
+    private val deviceId: String? = null,
 ) {
     private val http = OkHttpClient()
     private val json = "application/json".toMediaType()
@@ -75,7 +77,8 @@ internal class PlatformApi(
 
     private suspend fun send(builder: Request.Builder, retriedOn401: Boolean = false): String =
         withContext(Dispatchers.IO) {
-            val req = builder.header("Authorization", "Bearer ${token()}")
+            val withAuth = builder.header("Authorization", "Bearer ${token()}")
+            val req = (if (deviceId != null) withAuth.header("X-Device-Id", deviceId) else withAuth)
                 .header("X-SDK-Version", "android/${InCallSdkVersion.CURRENT}")   // FR-SDK-10
                 .build()
             val resp = try { http.newCall(req).execute() }

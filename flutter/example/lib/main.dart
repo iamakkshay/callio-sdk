@@ -1,96 +1,50 @@
-import 'dart:convert';
-import 'dart:io';
-
 import 'package:flutter/material.dart';
-import 'package:incall_flutter/incall_flutter.dart';
+import 'package:incall_flutter/incall_ui.dart';
 
-// Point these at your running platform-api + a lab account.
-const _baseUrl = 'http://10.0.2.2:8080'; // Android emulator -> host; use your LAN IP on a device
-const _username = 'akshay';
-const _password = 'akshay123';
-const _peerSipUser = '1005'; // vineet
+import 'home.dart';
+import 'sign_in.dart';
 
-void main() => runApp(const MaterialApp(home: DemoScreen()));
+// Defaults for the sign-in form. Override at build time, for example:
+//   flutter run --dart-define=CALLIO_BASE_URL=https://callio.example.com \
+//               --dart-define=CALLIO_TOKEN_URL=https://backend.example.com/callio-token
+const defaultBaseUrl = String.fromEnvironment('CALLIO_BASE_URL', defaultValue: 'http://10.0.2.2:8080'); // emulator -> host
+const defaultTokenUrl = String.fromEnvironment('CALLIO_TOKEN_URL'); // empty: <base URL>/api/login (lab only)
+const defaultUsername = String.fromEnvironment('CALLIO_USERNAME');
+const defaultPassword = String.fromEnvironment('CALLIO_PASSWORD');
+const defaultTenant = String.fromEnvironment('CALLIO_TENANT');
 
-class DemoScreen extends StatefulWidget {
-  const DemoScreen({super.key});
+void main() => runApp(const CallioExampleApp());
+
+class CallioExampleApp extends StatefulWidget {
+  const CallioExampleApp({super.key});
+
   @override
-  State<DemoScreen> createState() => _DemoScreenState();
+  State<CallioExampleApp> createState() => _CallioExampleAppState();
 }
 
-class _DemoScreenState extends State<DemoScreen> {
-  final _incall = InCall.instance;
-  RegistrationState _reg = RegistrationState.offline;
-  String _status = 'idle';
-  final _log = <String>[];
+class _CallioExampleAppState extends State<CallioExampleApp> {
+  final _navigatorKey = GlobalKey<NavigatorState>();
+  bool _signedIn = false;
 
-  @override
-  void initState() {
-    super.initState();
-    _incall.events.listen(_onEvent);
-    _connect();
-  }
-
-  // The tenant backend mints the token; here the dev /api/login stands in.
-  Future<String> _fetchToken() async {
-    final req = await HttpClient().postUrl(Uri.parse('$_baseUrl/api/login'));
-    req.headers.contentType = ContentType.json;
-    req.add(utf8.encode(jsonEncode({'username': _username, 'password': _password})));
-    final resp = await req.close();
-    final body = jsonDecode(await resp.transform(utf8.decoder).join());
-    return body['token'] as String;
-  }
-
-  Future<void> _connect() async {
-    try {
-      await _incall.start(baseUrl: _baseUrl, tokenProvider: _fetchToken);
-    } catch (e) {
-      setState(() => _status = 'start failed: $e');
-    }
-  }
-
-  void _onEvent(InCallEvent e) {
-    setState(() {
-      switch (e) {
-        case RegistrationChanged(:final state):
-          _reg = state;
-        case IncomingCall(:final from):
-          _status = 'incoming from ${from?.displayName ?? 'peer'}';
-          _log.insert(0, 'incoming call');
-        case CallStateChanged(:final state):
-          _status = 'call: $state';
-        case QualityUpdated(:final quality):
-          _status = 'connected · ${quality.rttMs ?? '-'} ms';
-        case MessageReceived(:final message):
-          _log.insert(0, 'msg: ${message.text ?? '[location]'}');
-        case AudioRouteChanged(:final route):
-          _log.insert(0, 'audio: $route');
-        case CallFailed(:final message):
-          _log.insert(0, 'error: $message');
-      }
-    });
+  void _openChat(BuildContext context, CallController call) {
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => ChatScreen(peerSipUser: call.peerSipUser, title: call.displayName),
+    ));
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text('In-Call · ${_reg.name}')),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Text(_status, style: const TextStyle(fontSize: 16)),
-          const SizedBox(height: 12),
-          Wrap(spacing: 8, children: [
-            FilledButton(onPressed: () => _incall.dial(_peerSipUser), child: const Text('Call')),
-            OutlinedButton(onPressed: () => _incall.answer(), child: const Text('Answer')),
-            OutlinedButton(onPressed: () => _incall.hangup(), child: const Text('Hang up')),
-            OutlinedButton(onPressed: () => _incall.sendText(_peerSipUser, 'Hi from Flutter'), child: const Text('Chat')),
-          ]),
-          const SizedBox(height: 16),
-          const Text('Events', style: TextStyle(fontWeight: FontWeight.bold)),
-          Expanded(child: ListView(children: _log.map((l) => Text(l)).toList())),
-        ]),
-      ),
+    return MaterialApp(
+      title: 'Callio example',
+      debugShowCheckedModeBanner: false,
+      navigatorKey: _navigatorKey,
+      theme: CallioTheme.light(),
+      darkTheme: CallioTheme.dark(),
+      // Rings show the ready-made incoming-call screen wherever the user is in the app.
+      builder: (context, child) => CallioCallListener(navigatorKey: _navigatorKey, onChat: _openChat, child: child!),
+      home: _signedIn
+          ? HomeScreen(onSignedOut: () => setState(() => _signedIn = false), onChat: _openChat)
+          : SignInScreen(onSignedIn: () => setState(() => _signedIn = true)),
     );
   }
 }

@@ -80,6 +80,6 @@ internal class SignallingSipTransport : SipTransport {
     override suspend fun setMuted(muted: Boolean) {}
     override suspend fun setHold(held: Boolean) {}
     override suspend fun setAudioRoute(route: AudioRoute) {}
-    override suspend fun sendDtmf(tone: String) {}
+    override suspend fun sendDtmf(tone: String) = throw needsMedia()
     override suspend fun transfer(sipUser: String) = throw needsMedia()
 }

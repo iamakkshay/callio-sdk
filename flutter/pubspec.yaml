@@ -1,16 +1,23 @@
 name: incall_flutter
-description: Callio in-app voice calling, chat and live location for Flutter. Wraps the native Callio iOS and Android SDKs.
-version: 0.2.3
+description: >-
+  Callio in-app voice calling, chat and location for Flutter. Wraps the native Callio iOS and Android SDKs
+  (SIP over WSS + WebRTC, CallKit / ConnectionService) and ships optional ready-made call and chat widgets.
+version: 0.3.0
 homepage: https://github.com/iamakkshay/callio-sdk
-repository: https://github.com/iamakkshay/callio-sdk/tree/main/flutter
+publish_to: none
 
 environment:
-  sdk: ">=3.0.0 <4.0.0"
-  flutter: ">=3.10.0"
+  sdk: ">=3.6.0 <4.0.0"
+  flutter: ">=3.27.0"
 
 dependencies:
   flutter:
     sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
 
 flutter:
   plugin:

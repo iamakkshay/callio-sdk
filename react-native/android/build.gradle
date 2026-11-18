@@ -10,10 +10,26 @@ android {
     kotlinOptions { jvmTarget = '17' }
 }
 
-repositories { google(); mavenCentral(); maven { url 'https://jitpack.io' } }
+repositories {
+    google()
+    mavenCentral()
+    // JitPack serves the native Callio SDK and nothing else (see the Flutter plugin's build.gradle); long term the
+    // SDK moves to Maven Central and this repository goes away. If the app already declares it (the Expo config
+    // plugin does, in allprojects), don't declare it again: two exclusiveContent blocks for one group cancel out
+    // and Gradle then finds the SDK nowhere.
+    // Development only: `-Pcallio.mavenLocal=true` also looks in ~/.m2, for a native SDK built with
+    // `./gradlew :incall-sdk:publishToMavenLocal` before it is released.
+    if (!repositories.any { it.hasProperty('url') && it.url.toString().contains('jitpack.io') }) {
+        exclusiveContent {
+            if (project.findProperty('callio.mavenLocal') == 'true') forRepositories(mavenLocal(), maven { url 'https://jitpack.io' })
+            else forRepository { maven { url 'https://jitpack.io' } }
+            filter { includeGroup 'com.github.iamakkshay.callio-sdk' }
+        }
+    }
+}
 
 dependencies {
     implementation 'com.facebook.react:react-android'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
-    implementation 'com.github.iamakkshay.callio-sdk:incall-sdk:0.2.3'   // the native Callio Android SDK (JitPack)
+    implementation 'com.github.iamakkshay.callio-sdk:incall-sdk:0.3.0'   // the native Callio Android SDK (JitPack)
 }

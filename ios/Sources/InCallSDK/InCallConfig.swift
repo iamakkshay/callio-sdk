@@ -16,16 +16,37 @@ public struct InCallConfig: Sendable {
     /// reconnect when it comes back. Incoming calls then arrive by VoIP push (InCallCallKit). On by default.
     public var disconnectInBackground: Bool
 
+    /// DEVELOPMENT ONLY: allow an `http://` baseURL and `ws://` signalling (a local stack or lab server).
+    /// Without it `start()` requires `https://` and `wss://`, so tokens and SIP credentials never travel in
+    /// clear text. Never set this in a release build.
+    public var allowInsecureTransport: Bool
+
     public init(
         baseURL: URL,
         forceRelay: Bool = false,
         disconnectInBackground: Bool = true,
+        allowInsecureTransport: Bool = false,
         tokenProvider: @escaping @Sendable () async throws -> String
     ) {
         self.baseURL = baseURL
         self.forceRelay = forceRelay
         self.disconnectInBackground = disconnectInBackground
+        self.allowInsecureTransport = allowInsecureTransport
         self.tokenProvider = tokenProvider
+    }
+}
+
+/// Scheme checks for the platform URL and the session's signalling URL.
+enum TransportSecurity {
+    /// Throws `InCallError.network` unless `url` uses `secure`, or `insecure` when `allowInsecure` is set.
+    static func check(_ url: String, secure: String, insecure: String, allowInsecure: Bool, what: String) throws {
+        let parts = url.components(separatedBy: "://")
+        let scheme = parts.count > 1 ? parts[0].lowercased() : ""
+        let hasHost = parts.count > 1 && !parts[1].isEmpty
+        if hasHost && (scheme == secure || (scheme == insecure && allowInsecure)) { return }
+        throw InCallError.network(scheme == insecure
+            ? "\(what) must use \(secure):// (\(insecure):// is allowed only with allowInsecureTransport, for development)"
+            : "\(what) must be a \(secure):// URL")
     }
 }
 
@@ -50,4 +71,23 @@ public struct Session: Codable, Sendable {
     public let turn: String?
     public let turnUser: String?
     public let turnPassword: String?
+}
+
+/// The SIP and TURN passwords are left out of `print`, string interpolation, `debugPrint` and `dump`.
+extension Session: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    public var description: String {
+        "Session(tenant: \(tenant), user: \(user), userType: \(userType), wss: \(wss), realm: \(realm), "
+            + "sipUser: \(sipUser), authUser: \(authUser), sipPassword: <redacted>, stun: \(stun ?? "nil"), "
+            + "turn: \(turn ?? "nil"), turnUser: \(turnUser ?? "nil"), turnPassword: \(turnPassword == nil ? "nil" : "<redacted>"), "
+            + "peers: \(peers.count), transferTargets: \(transferTargets.count), directory: \(directory.count))"
+    }
+    public var debugDescription: String { description }
+    public var customMirror: Mirror {
+        Mirror(self, children: [
+            "tenant": tenant, "user": user, "userType": userType, "features": features, "peers": peers,
+            "transferTargets": transferTargets, "directory": directory, "wss": wss, "realm": realm,
+            "sipUser": sipUser, "authUser": authUser, "sipPassword": "<redacted>", "stun": stun as Any,
+            "turn": turn as Any, "turnUser": turnUser as Any, "turnPassword": (turnPassword == nil ? "nil" : "<redacted>") as Any,
+        ], displayStyle: .struct)
+    }
 }

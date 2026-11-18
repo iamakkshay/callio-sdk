@@ -3,7 +3,7 @@
 #import <React/RCTEventEmitter.h>
 
 @interface RCT_EXTERN_MODULE(CallioInCall, RCTEventEmitter)
-RCT_EXTERN_METHOD(start:(NSString *)baseUrl forceRelay:(BOOL)forceRelay resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(start:(NSString *)baseUrl forceRelay:(BOOL)forceRelay allowInsecureTransport:(BOOL)allowInsecureTransport resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(stop:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(provideToken:(NSString *)requestId token:(NSString *)token)
 RCT_EXTERN_METHOD(dial:(NSString *)sipUser resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject)

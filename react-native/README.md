@@ -6,11 +6,38 @@ native apps.
 
 ```sh
 npm install @clarigoinfotech/callio-react-native
-cd ios && pod install
 ```
 
-The native SDKs come in automatically: `InCallSDK` from CocoaPods on iOS, and
-`com.github.iamakkshay.callio-sdk:incall-sdk` from JitPack on Android.
+**iOS.** The native SDK (`InCallSDK`) is not on the CocoaPods trunk. Pin its source in `ios/Podfile`,
+inside your app target and before `use_native_modules!`, so CocoaPods never looks the name up on trunk:
+
+```ruby
+target 'MyApp' do
+  pod 'InCallSDK', :git => 'https://github.com/iamakkshay/callio-sdk.git', :tag => '0.3.0'
+  # or this repository's sources: pod 'InCallSDK', :path => '<path to ngx-p2p>/sdk/ios'
+  config = use_native_modules!
+  # ...
+end
+```
+
+Then run `cd ios && pod install`. Without the pin, `pod install` would resolve `InCallSDK` from the public
+trunk, where anyone could register that name.
+
+**Android.** The native SDK `com.github.iamakkshay.callio-sdk:incall-sdk` comes from JitPack. The module's
+build adds JitPack only for the `com.github.iamakkshay.callio-sdk` group, so JitPack can't supply any other
+dependency of your app. If your `settings.gradle` uses `dependencyResolutionManagement` with
+`FAIL_ON_PROJECT_REPOS`, add the same filtered repository there:
+
+```groovy
+exclusiveContent {
+    forRepository { maven { url 'https://jitpack.io' } }
+    filter { includeGroup 'com.github.iamakkshay.callio-sdk' }
+}
+```
+
+**Transport security.** `baseUrl` must be `https://`, and the server's SIP socket must be `wss://`.
+For a lab server on plain http, pass `allowInsecureTransport: true` to `InCall.start` in a debug build
+only.
 
 ```ts
 import { InCall } from '@clarigoinfotech/callio-react-native';

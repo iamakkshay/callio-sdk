@@ -19,6 +19,7 @@ final class WebRTCMedia: NSObject {
 
     private let pc: RTCPeerConnection
     private let audioTrack: RTCAudioTrack
+    private var audioSender: RTCRtpSender?
     private let relayOnly: Bool
     private let hasTurn: Bool
     private let hasStun: Bool
@@ -60,7 +61,7 @@ final class WebRTCMedia: NSObject {
         let source = WebRTCMedia.factory.audioSource(with: voice)
         audioTrack = WebRTCMedia.factory.audioTrack(with: source, trackId: "audio0")
         super.init()
-        pc.add(audioTrack, streamIds: ["stream0"])
+        audioSender = pc.add(audioTrack, streamIds: ["stream0"])
         pc.delegate = self
     }
 
@@ -118,6 +119,11 @@ final class WebRTCMedia: NSObject {
     // MARK: - Controls
 
     func setMuted(_ muted: Bool) { audioTrack.isEnabled = !muted }
+    /// DTMF as RFC 4733 telephone-event packets on the audio sender, as the web engine does. False if unavailable.
+    func sendDTMF(_ tones: String) -> Bool {
+        guard let dtmf = audioSender?.dtmfSender, dtmf.canInsertDtmf else { return false }
+        return dtmf.insertDtmf(tones, duration: 0.1, interToneGap: 0.07)
+    }
     /// Stop sending our audio while on hold (the re-offer tells the other side; see `reOffer`).
     func setHold(_ held: Bool) { audioTrack.isEnabled = !held }
 

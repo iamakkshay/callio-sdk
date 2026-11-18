@@ -25,7 +25,7 @@ export type Events = {
 
 // What the platform module (ios/CallioInCall.swift, android/CallioInCallModule.kt) exposes.
 export interface NativeInCall {
-  start(baseUrl: string, forceRelay: boolean): Promise<void>;
+  start(baseUrl: string, forceRelay: boolean, allowInsecureTransport: boolean): Promise<void>;
   stop(): Promise<void>;
   provideToken(requestId: string, token: string | null): void;
   dial(sipUser: string): Promise<string>;
@@ -85,10 +85,17 @@ export class InCallClient {
   }
 
   /** Fetch the session and sign in to the call line. tokenProvider returns a short-lived token from your backend. */
-  async start(opts: { baseUrl: string; tokenProvider: () => Promise<string>; forceRelay?: boolean }) {
-    if (!/^https?:\/\//.test(opts.baseUrl)) throw new Error('baseUrl must be an http(s) URL');
+  /**
+   * `allowInsecureTransport` is for DEVELOPMENT only: it allows an `http://` baseUrl and `ws://` signalling (a local
+   * stack or lab server). Without it the SDK requires `https://` and `wss://`. Never set it in a release build.
+   */
+  async start(opts: { baseUrl: string; tokenProvider: () => Promise<string>; forceRelay?: boolean; allowInsecureTransport?: boolean }) {
+    const insecure = !!opts.allowInsecureTransport;
+    if (/^http:\/\/./i.test(opts.baseUrl)) {
+      if (!insecure) throw new Error('baseUrl must use https:// (http:// is allowed only with allowInsecureTransport: true, for development)');
+    } else if (!/^https:\/\/./i.test(opts.baseUrl)) throw new Error('baseUrl must be an https:// URL');
     this.tokenProvider = opts.tokenProvider;
-    await this.n.start(opts.baseUrl, !!opts.forceRelay);
+    await this.n.start(opts.baseUrl, !!opts.forceRelay, insecure);
   }
   stop() { return this.n.stop(); }
 

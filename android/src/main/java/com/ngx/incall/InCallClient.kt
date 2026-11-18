@@ -47,9 +47,11 @@ class InCallClient internal constructor(
         : this(context, config, scope, defaultTransport(context))
 
     private val appContext = context.applicationContext
-    private val api = PlatformApi(config.baseUrl, config.tokenProvider)
+    /** This install's device id, sent as X-Device-Id: pass it to your server so it can request a token for this
+     *  device only (POST /api/v1/tokens with deviceId). */
+    val deviceId: String = stableDeviceId(appContext)
+    private val api = PlatformApi(config.baseUrl, config.tokenProvider, deviceId)
     private val transport: SipTransport = transport.also { it.events = this }
-    private val deviceId = stableDeviceId(appContext)
 
     val push = PushService(api, deviceId)
 
@@ -130,6 +132,12 @@ class InCallClient internal constructor(
         if (!lifecycleHooked) hookLifecycle()
         registrationState = RegistrationState.CONNECTING
         val s = api.fetchSession()
+        try {
+            TransportSecurity.check(s.wss, secure = "wss", insecure = "ws", config.allowInsecureTransport, "the session's signalling URL")
+        } catch (e: IllegalArgumentException) {
+            registrationState = RegistrationState.OFFLINE
+            throw InCallException.Network(e.message ?: "insecure signalling URL")
+        }
         session = s
         if (!s.features.calling && !s.features.chat) {
             registrationState = RegistrationState.OFFLINE

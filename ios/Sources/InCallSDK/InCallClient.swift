@@ -68,6 +68,9 @@ public final class InCallClient {
 
     private let config: InCallConfig
     private let api: PlatformAPI
+    /// This install's device id, sent as X-Device-Id: pass it to your server so it can request a token for this
+    /// device only (POST /api/v1/tokens with deviceId).
+    public let deviceId: String
     private let transport: any SIPTransport
     public let push: PushService
 
@@ -81,9 +84,10 @@ public final class InCallClient {
     // Designated init; `transport` is internal (the native WebRTC/SIP transport or a test double).
     init(config: InCallConfig, transport: any SIPTransport) {
         self.config = config
-        self.api = PlatformAPI(baseURL: config.baseURL, tokenProvider: config.tokenProvider)
-        self.transport = transport
         let deviceId = Self.stableDeviceId()
+        self.deviceId = deviceId
+        self.api = PlatformAPI(baseURL: config.baseURL, tokenProvider: config.tokenProvider, deviceId: deviceId)
+        self.transport = transport
         self.push = PushService(api: api, deviceId: deviceId)
         self.transport.events = self
         #if os(iOS)
@@ -159,7 +163,15 @@ public final class InCallClient {
         wantsConnection = true
         if lifecycleObservers.isEmpty { observeAppLifecycle() }
         registrationState = .connecting
+        do {
+            try TransportSecurity.check(config.baseURL.absoluteString, secure: "https", insecure: "http",
+                                        allowInsecure: config.allowInsecureTransport, what: "baseURL")
+        } catch { registrationState = .offline; throw error }
         let s = try await api.fetchSession()
+        do {
+            try TransportSecurity.check(s.wss, secure: "wss", insecure: "ws",
+                                        allowInsecure: config.allowInsecureTransport, what: "the session's signalling URL")
+        } catch { registrationState = .offline; throw error }
         self.session = s
         guard s.features.calling || s.features.chat else {
             // Nothing to register for; mirror the reference engine's behaviour.

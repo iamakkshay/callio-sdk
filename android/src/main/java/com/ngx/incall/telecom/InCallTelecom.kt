@@ -68,7 +68,9 @@ object InCallTelecom {
             .setSupportedUriSchemes(listOf(SCHEME))
             .build())
         client.addListener(listener)
-        client.audio.onChange = { route -> byCallId.values.forEach { it.lastRoute = route } }
+        // Chain, don't replace: the client's own hook reports onAudioRouteChanged to listeners.
+        val previous = client.audio.onChange
+        client.audio.onChange = { route -> previous?.invoke(route); byCallId.values.forEach { it.lastRoute = route } }
         if (Build.VERSION.SDK_INT >= 26) {
             val nm = appContext.getSystemService(NotificationManager::class.java)
             nm.createNotificationChannel(NotificationChannel(CHANNEL, "Incoming calls", NotificationManager.IMPORTANCE_HIGH).apply {

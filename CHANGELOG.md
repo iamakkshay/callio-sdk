@@ -1,42 +1,55 @@
 # Callio SDK changelog
 
-All SDKs (iOS, Android, Flutter, React Native) share one version, kept in `VERSION`. Versions follow
+All SDKs (iOS, Android, Flutter, web engine) share one version, kept in `sdk/VERSION`. Versions follow
 [semantic versioning](https://semver.org): a **major** bump breaks apps, a **minor** adds features, a **patch** fixes.
+See `docs/SDK_VERSIONING.md` for the support policy.
 
-## 0.2.3
-Android and iOS, tested on a real Android phone against the platform:
-- Ringing when the app is closed: the call server now holds a call while the push wakes the app, and delivers it
-  when the app reconnects (needs platform 2026-10-27 or later). Answering from the system call screen before the
-  call has arrived now waits for it instead of failing.
-- Hold and resume renegotiate from the WebRTC connection in both directions (an echoed SDP made the other side drop
-  the call). Holding from the app tells the other side.
-- A second call while on a call gets "busy" instead of replacing the current one.
-- 3-way calls: when the other side adds someone, the SDK follows the call into the conference
-  (`onConferenceStarted` / `conferenceDidStart`); invitations arrive as `onConferenceInvite` /
-  `didReceiveConferenceInvite`, joined with `joinConference`.
-- Audio: voice processing on the microphone (echo cancellation, noise suppression, gain, high-pass) and Opus
-  in-band FEC, mono, 32 kbps. Android enters voice-call audio mode for the call.
-- Hanging up when the media can't start after the other side answered (it was left in the call); a second answer
-  tap is ignored; Android WebRTC set-up runs off the main thread; ICE gathering waits at most 2.5 s.
+## 0.3.0
+Flutter becomes a first-class platform SDK; https/wss are required unless a development flag is set; tokens can be
+bound to one device.
 
-## 0.2.2
-Fixes found testing the Android demo on a real phone (iOS had the same bugs):
-- Incoming calls: the SDK now replies 100 Trying and 180 Ringing at once. Before, the call server gave up after
-  6 s, so answering did nothing.
-- A call cancelled by the caller now stops ringing (CANCEL → 487), and a remote hang-up is reported.
-- Chat: sending answers the proxy's authentication challenge (every message failed with 407 before), and
-  received messages are acknowledged with 200 OK.
-- Replies to the call server carry every Via (and Record-Route), so they route back to the caller.
-- Each call and message gets its own Call-ID (calls reused one, which broke the second call).
-- `dial()` returns at once and reports Ringing, Connected, or why the call ended (busy, declined, no answer);
-  hanging up a call that hasn't been answered cancels it.
-- Verified against the live call server: chat both ways, ringing past 6 s, answer, hang-up, cancel, decline.
-
-## 0.2.1
-- Android: `InCallClient` now uses WebRTC calls by default (0.2.0 only registered and chatted unless you wired
-  the transport yourself).
-- New: native Android demo app in `android-demo/`. Sign in, see contacts and presence, call, chat and share
-  location, using the ready-made screens. CI builds an installable APK.
+- React Native (Android): the module no longer declares JitPack again when the app already does (the Expo config
+  plugin does). Two `exclusiveContent` blocks for one group cancelled out and Gradle found the SDK nowhere.
+  New development switch `-Pcallio.mavenLocal=true` resolves a native SDK built locally (`publishToMavenLocal`).
+- Flutter: the plugin links the native SDKs. Android depends on `com.github.iamakkshay.callio-sdk:incall-sdk`
+  (JitPack, with WebRTC and the Telecom call UI; or this repo's sources with `callio.localSdk=true`); iOS depends on
+  the `InCallSDK` pod (new `sdk/ios/InCallSDK.podspec` for path installs).
+- Flutter: new methods `cancel`, `transfer`, `audioRoutes`, `session`, `messages`, `joinConference`,
+  `refreshPresence`, `startPresenceUpdates`, `stopPresenceUpdates`, `unregisterPush`, `handlePush`,
+  `requestPermissions`, `nativeSdkVersion`; `registrationState`, `registrationChanges` and `currentCall` getters;
+  `start(disconnectInBackground:, nativeCallUi:)`. With `nativeCallUi` (default on) calls also go to CallKit + PushKit
+  on iOS and to the self-managed ConnectionService on Android.
+- Flutter: new events `MessageStatusChanged`, `PresenceChanged`, `ConferenceInviteReceived`, `ConferenceStarted`;
+  `CallStateChanged` now carries `reason`, `direction`, `peer`, `muted`, `held` and a typed `status`.
+- Flutter: errors are `InCallException` with a stable `InCallErrorCode` instead of raw `PlatformException`.
+- Flutter: `CallController` and `ChatController` (headless state holders), and optional ready-made widgets in
+  `package:incall_flutter/incall_ui.dart`: `IncomingCallScreen`, `InCallScreen`, `ChatView` / `ChatScreen`,
+  `CallioCallListener`, `CallioCalls.dial`, keypad, quality indicator, and the Jade `CallioTheme` (light and dark).
+- Flutter: runnable example app (token from a configurable backend URL) and unit / widget tests.
+- Breaking (Flutter): exhaustive `switch`es over `InCallEvent` need cases for the new events (or a `default`);
+  failures throw `InCallException` rather than `PlatformException`. Requires Flutter 3.27+.
+- iOS: `Contact` and `SharedLocation` have public initializers (wrappers and apps could not build them before).
+- Security (all SDKs): `https://` and `wss://` are required. Plain http / ws need the development flag
+  `allowInsecureTransport` (iOS, Android, Flutter, React Native) or `allowInsecure` / `allow_insecure` (server SDKs).
+  Breaking for apps that point at an http lab server: set the flag in debug builds.
+- Security: `Session.toString()` (Android) and `description` / `debugDescription` / `dump` (iOS) redact the SIP and
+  TURN passwords.
+- Android and iOS: `sendDtmf` sends RFC 4733 telephone-events through the WebRTC DTMF sender (it was a no-op). Without
+  the WebRTC transport, it fails with a media error.
+- Web engine: chat attachment URLs are trusted only when they are this origin's `/api/attachments/<32 hex>`. Any other
+  URL renders as "File unavailable". A denied or unavailable location now shows an error instead of sending a
+  placeholder pin. The diagnostics log records "dtmf: sent" without the digit.
+- React Native: `InCallSDK` must be pinned in the app's Podfile (`:git`, `:tag`). The podspec depends on the exact
+  SDK version. The JitPack repository added by the RN and Flutter Android builds serves only the
+  `com.github.iamakkshay.callio-sdk` group (`exclusiveContent`).
+- Flutter example: iOS ATS allows only local networking (`NSAllowsLocalNetworking`), not arbitrary loads.
+- Server SDKs (Node, Python): webhooks are verified with `X-Callio-Timestamp` + `X-Callio-Signature: v1=` over
+  `timestamp.body`, with a 300 s tolerance (configurable). A delivery without a timestamp is rejected unless
+  `allowLegacy` / `allow_legacy` is set. The event `id` is exposed for de-duplication. The old
+  `(body, signatureHeader, secret)` call still works but is deprecated. Redirects are refused, an http baseUrl
+  needs `allowInsecure`, and `.` / `..` ids are rejected.
+- Android: `InCallTelecom.install` keeps the client's audio-route hook, so `onAudioRouteChanged` still fires once
+  Telecom is installed.
 
 ## 0.2.0
 - Calls survive network changes (ICE restart, up to 15 s).
@@ -44,7 +57,7 @@ Fixes found testing the Android demo on a real phone (iOS had the same bugs):
 - Support calls: entry points with overflow, escalation from chat, interaction ids.
 - SDKs send `X-SDK-Version`; the session carries `sdk.minVersion` / `sdk.latest` so apps can prompt an update.
 - Caller context to the contact centre: app version, language, order reference.
-- New: React Native wrapper `@clarigoinfotech/callio-react-native` over the native iOS and Android SDKs.
+- New: React Native wrapper `@callio/react-native` over the native iOS and Android SDKs.
 - New: native call UI inside the SDKs. iOS `InCallCallKit` covers CallKit, PushKit and the audio-session handoff
   to WebRTC. Android `InCallTelecom` covers the self-managed ConnectionService and a full-screen CallStyle
   notification. Outgoing calls go through the system too.

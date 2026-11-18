@@ -18,7 +18,7 @@ const events = { addListener: (_n: string, fn: (e: any) => void) => { emit = fn;
 
 const c = new InCallClient(mock, events);
 await c.start({ baseUrl: 'https://api.example.sa', tokenProvider: async () => 'tok-123' });
-check(calls.some(([n, a]) => n === 'start' && a[0] === 'https://api.example.sa' && a[1] === false), 'start passes the base URL to the native SDK');
+check(calls.some(([n, a]) => n === 'start' && a[0] === 'https://api.example.sa' && a[1] === false && a[2] === false), 'start passes the base URL to the native SDK');
 
 emit({ event: 'tokenRequest', requestId: 'r1' });
 await new Promise((r) => setTimeout(r, 0));
@@ -56,6 +56,11 @@ try { c.sendDtmf('12'); } catch { threw++; }
 try { c.sendLocation('1002', { lat: 120, lng: 0 }); } catch { threw++; }
 try { await c.start({ baseUrl: 'api.example.sa', tokenProvider: async () => '' }); } catch { threw++; }
 check(threw === 3, 'bad DTMF, coordinates and base URLs are rejected before reaching native');
+let insecureThrew = false;
+try { await c.start({ baseUrl: 'http://10.0.2.2:8080', tokenProvider: async () => '' }); } catch { insecureThrew = true; }
+check(insecureThrew, 'an http:// baseUrl is refused without allowInsecureTransport');
+await c.start({ baseUrl: 'http://10.0.2.2:8080', tokenProvider: async () => 't', allowInsecureTransport: true });
+check(calls.some(([n, a]) => n === 'start' && a[0] === 'http://10.0.2.2:8080' && a[2] === true), 'allowInsecureTransport is passed to the native SDK');
 await c.sendLocation('1002', { lat: 24.7, lng: 46.7 });
 check(calls.some(([n, a]) => n === 'sendLocation' && a[3] === 'Shared location'), 'a location without a label gets the default');
 

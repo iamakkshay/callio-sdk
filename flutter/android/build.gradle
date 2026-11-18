@@ -1,31 +1,85 @@
-// Gradle for the incall_flutter Android plugin. The native Callio Android SDK comes from JitPack.
+// Gradle for the incall_flutter Android plugin.
+//
+// The native Callio Android SDK (com.ngx.incall, with the WebRTC media layer and the Telecom call UI) comes in
+// as a Maven dependency from JitPack: com.github.iamakkshay.callio-sdk:incall-sdk:<version>. The JitPack
+// repository is added to every project of the host build below, so the host app needs no Gradle changes.
+//
+// SDK developers can compile against the native SDK sources in this repository instead (unreleased native
+// changes): set `callio.localSdk=true` in the host app's android/gradle.properties (uses ../../../android
+// relative to this plugin), or `callio.localSdk=/absolute/path/to/sdk/android`.
 group 'com.ngx.incall.flutter'
-version '0.2.3'
+version '0.3.0'
 
 buildscript {
-    ext.kotlin_version = '1.9.24'
+    ext.kotlin_version = '2.2.20'
     repositories { google(); mavenCentral() }
     dependencies {
-        classpath 'com.android.tools.build:gradle:8.5.2'
+        classpath 'com.android.tools.build:gradle:8.11.1'
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
     }
 }
 
-rootProject.allprojects { repositories { google(); mavenCentral(); maven { url 'https://jitpack.io' } } }
+rootProject.allprojects {
+    repositories {
+        google()
+        mavenCentral()
+        // JitPack serves the native Callio SDK and nothing else: exclusiveContent stops it from supplying any other
+        // group (a lookalike of one of the app's dependencies), and stops other repositories supplying ours.
+        // Long term the SDK moves to Maven Central and this repository goes away.
+        exclusiveContent {
+            forRepository { maven { url 'https://jitpack.io' } }
+            filter { includeGroup 'com.github.iamakkshay.callio-sdk' }
+        }
+    }
+}
 
 apply plugin: 'com.android.library'
 apply plugin: 'kotlin-android'
 
+def localSdkProp = rootProject.findProperty('callio.localSdk')
+def localSdkDir = null
+if (localSdkProp != null && localSdkProp.toString() != 'false') {
+    localSdkDir = localSdkProp.toString() == 'true' ? file("${projectDir}/../../../android") : file(localSdkProp.toString())
+    if (!new File(localSdkDir, 'src/main/java/com/ngx/incall/InCallClient.kt').exists()) {
+        throw new GradleException("callio.localSdk: no native Callio SDK sources at ${localSdkDir}")
+    }
+    logger.lifecycle("incall_flutter: compiling the native Callio SDK from ${localSdkDir}")
+}
+
 android {
     namespace 'com.ngx.incall.flutter'
-    compileSdk 34
-    defaultConfig { minSdk 24 }
-    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    compileSdk 36
+
+    defaultConfig {
+        minSdk 24
+        if (localSdkDir != null) consumerProguardFiles "${localSdkDir}/consumer-rules.pro"
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
     kotlinOptions { jvmTarget = '17' }
+
+    sourceSets {
+        main.java.srcDirs += 'src/main/kotlin'
+        if (localSdkDir != null) {
+            main.java.srcDirs += ["${localSdkDir}/src/main/java", "${localSdkDir}/webrtc"]
+        }
+    }
 }
 
 dependencies {
-    implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
-    implementation 'com.github.iamakkshay.callio-sdk:incall-sdk:0.2.3'   // the native Callio Android SDK
+    if (localSdkDir != null) {
+        // The native SDK's own dependencies (see sdk/android/build.gradle.kts), with the WebRTC media layer.
+        implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+        implementation 'org.json:json:20240303'
+        implementation 'io.github.webrtc-sdk:android:125.6422.07'
+    } else {
+        // The native Callio Android SDK, same version as this plugin (sdk/VERSION; one version for every SDK).
+        // `api`: the host app compiles against it too (GeneratedPluginRegistrant, and native push glue that
+        // calls com.ngx.incall.telecom.InCallTelecom / PushService).
+        api "com.github.iamakkshay.callio-sdk:incall-sdk:${project.version}"
+    }
 }
