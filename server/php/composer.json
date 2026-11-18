@@ -1,0 +1,27 @@
+{
+  "name": "clarigoinfotech/callio-server",
+  "description": "Callio server SDK for PHP: the tenant REST API (users, app tokens, orders, recordings, groups, events, CDR) and webhook verification",
+  "type": "library",
+  "version": "0.1.0",
+  "keywords": ["callio", "voip", "calling", "chat", "server", "sdk", "webhooks"],
+  "license": "proprietary",
+  "require": {
+    "php": ">=8.1",
+    "ext-curl": "*",
+    "ext-json": "*"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^10.5"
+  },
+  "autoload": {
+    "psr-4": { "Clarigoinfotech\\Callio\\": "src/" }
+  },
+  "autoload-dev": {
+    "psr-4": { "Clarigoinfotech\\Callio\\Tests\\": "tests/" }
+  },
+  "scripts": {
+    "test": "phpunit --testsuite unit",
+    "test:integration": "phpunit --testsuite integration"
+  },
+  "config": { "sort-packages": true }
+}

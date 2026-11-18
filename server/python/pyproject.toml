@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "callio-server"
+version = "0.1.0"
+description = "Callio server SDK for Python: the tenant REST API (users, app tokens, orders, recordings, groups, events, CDR) and webhook verification"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+authors = [{ name = "Clarigo Infotech" }]
+dependencies = []
+keywords = ["callio", "voip", "calling", "chat", "server", "sdk", "webhooks"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: Other/Proprietary License",
+  "Typing :: Typed",
+  "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://github.com/iamakkshay/callio-sdk"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+callio_server = ["py.typed"]

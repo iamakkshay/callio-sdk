@@ -1,0 +1,28 @@
+{
+  "name": "@clarigoinfotech/callio-server",
+  "version": "0.1.0",
+  "description": "Callio server SDK for Node.js: the tenant REST API (users, app tokens, orders, recordings, groups, events, CDR) and webhook verification",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+    "./package.json": "./package.json"
+  },
+  "files": ["dist", "README.md", "LICENSE"],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test test/unit.test.mjs",
+    "test:integration": "npm run build && node --test test/integration.test.mjs",
+    "prepublishOnly": "npm test"
+  },
+  "keywords": ["callio", "voip", "calling", "chat", "server", "sdk", "webhooks"],
+  "engines": { "node": ">=18" },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.4.0"
+  },
+  "publishConfig": { "access": "public", "registry": "https://registry.npmjs.org/" },
+  "license": "SEE LICENSE IN LICENSE"
+}

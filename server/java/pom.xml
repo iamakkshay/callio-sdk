@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.clarigoinfotech</groupId>
+  <artifactId>callio-server</artifactId>
+  <version>0.1.0</version>
+  <packaging>jar</packaging>
+
+  <name>Callio server SDK for Java</name>
+  <description>Callio server SDK for Java: the tenant REST API (users, app tokens, orders, recordings, groups, events, CDR) and webhook verification. No runtime dependencies.</description>
+
+  <properties>
+    <maven.compiler.release>11</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <junit.version>5.10.2</junit.version>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>${junit.version}</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.13.0</version>
+        <executions>
+          <!-- The library itself compiles warning-free; tests are not held to -Werror. -->
+          <execution>
+            <id>default-compile</id>
+            <configuration>
+              <compilerArgs><arg>-Xlint:all</arg><arg>-Werror</arg></compilerArgs>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>3.2.5</version>
+        <configuration>
+          <excludedGroups>${callio.excludedGroups}</excludedGroups>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <version>3.4.1</version>
+        <configuration>
+          <archive>
+            <manifestEntries>
+              <Automatic-Module-Name>com.clarigoinfotech.callio</Automatic-Module-Name>
+            </manifestEntries>
+          </archive>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+
+  <profiles>
+    <!-- `mvn test` runs the unit tests; `mvn test -Pintegration` (with CALLIO_ADMIN_PASS) runs the live ones. -->
+    <profile>
+      <id>unit</id>
+      <activation><activeByDefault>true</activeByDefault></activation>
+      <properties><callio.excludedGroups>integration</callio.excludedGroups></properties>
+    </profile>
+    <profile>
+      <id>integration</id>
+      <properties><callio.excludedGroups>none</callio.excludedGroups></properties>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-surefire-plugin</artifactId>
+            <configuration><groups>integration</groups></configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+</project>

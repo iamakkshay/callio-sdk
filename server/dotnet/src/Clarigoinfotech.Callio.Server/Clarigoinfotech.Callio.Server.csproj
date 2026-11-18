@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <RootNamespace>Clarigoinfotech.Callio.Server</RootNamespace>
+    <AssemblyName>Clarigoinfotech.Callio.Server</AssemblyName>
+
+    <PackageId>Clarigoinfotech.Callio.Server</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>Clarigo Infotech</Authors>
+    <Description>Callio server SDK for .NET: the tenant REST API (users, app tokens, orders, recordings, groups, events, CDR) and webhook verification. No dependencies beyond the BCL.</Description>
+    <PackageTags>callio;voip;calling;chat;server;sdk;webhooks</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+    <InternalsVisibleTo Include="Clarigoinfotech.Callio.Server.Tests" />
+  </ItemGroup>
+
+</Project>
