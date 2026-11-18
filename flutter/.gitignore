@@ -1,2 +1,7 @@
 build/
 .flutter-plugins-dependencies
+.dart_tool/
+build/
+example/.dart_tool/
+example/build/
+example/.flutter-plugins-dependencies
