@@ -8,6 +8,8 @@ See `docs/SDK_VERSIONING.md` for the support policy.
 Flutter becomes a first-class platform SDK; https/wss are required unless a development flag is set; tokens can be
 bound to one device.
 
+- React Native: `callState` now carries `reason` when a call ends (`ended`, `declined`, `missed`, `no-answer`, `busy`,
+  `unreachable`), as the Flutter, Android and iOS SDKs already report, so an app can say why a call ended.
 - React Native (Android): the module no longer declares JitPack again when the app already does (the Expo config
   plugin does). Two `exclusiveContent` blocks for one group cancelled out and Gradle found the SDK nowhere.
   New development switch `-Pcallio.mavenLocal=true` resolves a native SDK built locally (`publishToMavenLocal`).

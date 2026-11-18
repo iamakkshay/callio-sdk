@@ -47,7 +47,7 @@ await InCall.start({
   tokenProvider: () => myBackend.callioToken(),   // your server calls POST /api/v1/tokens
 });
 const off = InCall.on('incomingCall', ({ callId, from }) => showIncoming(from.displayName));
-InCall.on('callState', ({ state }) => setCallState(state));
+InCall.on('callState', ({ state, reason }) => setCallState(state, reason));   // reason when ended: no-answer, busy, declined, …
 
 const call = await InCall.dial('1002');
 await call.setMuted(true);

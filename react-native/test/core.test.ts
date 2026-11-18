@@ -45,6 +45,9 @@ let after = false; c3.on('callState', () => { after = true; });
 c3events.fn({ event: 'callState', callId: 'c9', state: 'connected' });
 console.warn = warn;
 check(after, "one listener throwing doesn't stop the others");
+let ended: any = null; c3.on('callState', (e) => { if (e.state === 'ended') ended = e; });
+c3events.fn({ event: 'callState', callId: 'c9', state: 'ended', reason: 'no-answer' });
+check(ended?.reason === 'no-answer' && ended?.callId === 'c9', 'callState carries why the call ended');
 
 const call = await c.dial('1002');
 check(call.id === 'call-1' && call.peerSipUser === '1002', 'dial returns a Call with the native id');

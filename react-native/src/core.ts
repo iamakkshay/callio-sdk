@@ -7,6 +7,8 @@
 export type UserType = 'customer' | 'agent' | 'guest';
 export type AudioRoute = 'earpiece' | 'speaker' | 'bluetooth';
 export type CallState = 'initiating' | 'ringing' | 'connected' | 'onHold' | 'reconnecting' | 'ended';
+/** Why a call ended; sent with `callState` when state is 'ended'. */
+export type CallEndReason = 'ended' | 'declined' | 'missed' | 'no-answer' | 'busy' | 'unreachable';
 export type Contact = { name: string; sipUser: string; displayName: string; userType: UserType };
 export type SharedLocation = { lat: number; lng: number; label?: string };
 export type Message = { id: string; from: 'me' | 'peer'; text?: string | null; location?: SharedLocation | null; status: string };
@@ -16,7 +18,7 @@ export type HistoryEntry = { callId: string; peer: string; peerDisplayName: stri
 export type Events = {
   registration: { state: string };
   incomingCall: { callId: string; from: Contact };
-  callState: { callId: string; state: CallState };
+  callState: { callId: string; state: CallState; reason?: CallEndReason };
   quality: { quality: CallQuality };
   message: { peerSip: string; message: Message };
   failure: { code: string; message: string };

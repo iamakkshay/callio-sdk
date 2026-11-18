@@ -136,7 +136,11 @@ final class CallioInCall: RCTEventEmitter, InCallClientDelegate {
         emit(["event": "incomingCall", "callId": call.id,
               "from": ["name": call.peer.name, "sipUser": call.peer.sipUser, "displayName": call.peer.displayName, "userType": call.peer.userType.rawValue]])
     }
-    func client(_ c: InCallClient, callDidChangeState call: Call) { emit(["event": "callState", "callId": call.id, "state": Self.stateName(call.state)]) }
+    func client(_ c: InCallClient, callDidChangeState call: Call) {
+        var body: [String: Any?] = ["event": "callState", "callId": call.id, "state": Self.stateName(call.state)]
+        if case .ended(let reason) = call.state { body["reason"] = reason.rawValue }   // why it ended: no-answer, busy, …
+        emit(body)
+    }
     func client(_ c: InCallClient, callQualityDidUpdate q: CallQuality) {
         emit(["event": "quality", "quality": ["rttMs": q.rttMs as Any, "jitterMs": q.jitterMs as Any, "lossPct": q.lossPct as Any, "mos": q.mos as Any]])
     }

@@ -100,7 +100,10 @@ class CallioInCallModule(private val ctx: ReactApplicationContext) : ReactContex
             putString("displayName", call.peer.displayName); putString("userType", call.peer.userType.wire)
         })
     }
-    override fun onCallStateChanged(call: Call) = event("callState") { putString("callId", call.id); putString("state", stateName(call.state)) }
+    override fun onCallStateChanged(call: Call) = event("callState") {
+        putString("callId", call.id); putString("state", stateName(call.state))
+        (call.state as? CallState.Ended)?.let { putString("reason", it.reason.wire) }   // why it ended: no-answer, busy, …
+    }
     override fun onCallQualityUpdated(quality: CallQuality) = event("quality") {
         putMap("quality", Arguments.createMap().apply {
             quality.rttMs?.let { putDouble("rttMs", it.toDouble()) }; quality.jitterMs?.let { putDouble("jitterMs", it.toDouble()) }
