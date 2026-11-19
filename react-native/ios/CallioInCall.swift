@@ -84,6 +84,22 @@ final class CallioInCall: RCTEventEmitter, InCallClientDelegate {
     @objc func hangup(_ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
         run(reject, "hangup") { await self.client?.currentCall?.hangup(); resolve(nil) }
     }
+    /// FR-CALL-14: bring someone into the current call (3-way). Hang up afterwards to hand the call over.
+    @objc func addToCall(_ sipUser: String, displayName: String, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
+        run(reject, "addToCall") {
+            guard let c = self.client else { throw InCallError.notRegistered }
+            let base = self.contact(sipUser)
+            let who = displayName.isEmpty ? base : Contact(name: base.name, sipUser: base.sipUser, displayName: displayName, userType: base.userType)
+            try await c.addToCall(who); resolve(nil)
+        }
+    }
+    /// Accept a conferenceInvite: leaves the current call (if any) and joins the 3-way call.
+    @objc func joinConference(_ room: String, fromSip: String, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
+        run(reject, "joinConference") {
+            guard let c = self.client else { throw InCallError.notRegistered }
+            resolve(try await c.joinConference(ConferenceInvite(room: room, from: self.contact(fromSip), with: [])).id)
+        }
+    }
     @objc func setMuted(_ muted: Bool, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
         run(reject, "setMuted") { await self.client?.currentCall?.setMuted(muted); resolve(nil) }
     }
@@ -102,13 +118,13 @@ final class CallioInCall: RCTEventEmitter, InCallClientDelegate {
     @objc func sendText(_ to: String, text: String, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
         run(reject, "sendText") {
             guard let c = self.client else { throw InCallError.notRegistered }
-            resolve(try await c.thread(with: self.contact(to)).send(text: text).id)
+            resolve(self.announce(try await c.thread(with: self.contact(to)).send(text: text)))
         }
     }
     @objc func sendLocation(_ to: String, lat: Double, lng: Double, label: String, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
         run(reject, "sendLocation") {
             guard let c = self.client else { throw InCallError.notRegistered }
-            resolve(try await c.thread(with: self.contact(to)).sendLocation(SharedLocation(lat: lat, lng: lng, label: label)).id)
+            resolve(self.announce(try await c.thread(with: self.contact(to)).sendLocation(SharedLocation(lat: lat, lng: lng, label: label))))
         }
     }
     @objc func setTyping(_ to: String, typing: Bool, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
@@ -149,6 +165,17 @@ final class CallioInCall: RCTEventEmitter, InCallClientDelegate {
               "message": ["id": m.id, "from": m.from.rawValue, "text": m.text as Any,
                           "location": m.location.map { ["lat": $0.lat, "lng": $0.lng, "label": $0.label] } as Any, "status": m.status.rawValue]])
     }
+    func client(_ c: InCallClient, messageStatusDidChange m: Message) { emit(["event": "messageStatus", "messageId": m.id, "status": m.status.rawValue]) }
+    /// A message the platform is holding for someone offline: say so (messageStatus "queued"), then return its id.
+    private func announce(_ m: Message) -> String {
+        if m.status == .queued { emit(["event": "messageStatus", "messageId": m.id, "status": m.status.rawValue]) }
+        return m.id
+    }
+    func client(_ c: InCallClient, didReceiveConferenceInvite invite: ConferenceInvite) {
+        emit(["event": "conferenceInvite", "room": invite.room,
+              "from": ["sipUser": invite.from.sipUser, "displayName": invite.from.displayName], "with": invite.with])
+    }
+    func client(_ c: InCallClient, conferenceDidStart call: Call) { emit(["event": "conferenceStarted", "callId": call.id]) }
     func client(_ c: InCallClient, audioRouteDidChange route: AudioRoute) { emit(["event": "audioRoute", "route": route.rawValue]) }
     func client(_ c: InCallClient, didFail error: InCallError) { emit(["event": "failure", "code": "\(error)", "message": "\(error)"]) }
 

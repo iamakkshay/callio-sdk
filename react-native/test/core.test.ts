@@ -10,6 +10,7 @@ const mock = new Proxy({}, { get: (_t, name: string) => (...args: unknown[]) => 
   calls.push([name, args]);
   if (name === 'provideToken') tokens.push(args as [string, string | null]);
   if (name === 'dial') return Promise.resolve('call-1');
+  if (name === 'joinConference') return Promise.resolve('call-conf');
   return Promise.resolve(undefined);
 } }) as NativeInCall;
 let emit: (e: any) => void = () => {};
@@ -49,6 +50,10 @@ let ended: any = null; c3.on('callState', (e) => { if (e.state === 'ended') ende
 c3events.fn({ event: 'callState', callId: 'c9', state: 'ended', reason: 'no-answer' });
 check(ended?.reason === 'no-answer' && ended?.callId === 'c9', 'callState carries why the call ended');
 
+await c.addToCall('1003', 'Support team');
+check(calls.some(([n, a]) => n === 'addToCall' && a[0] === '1003' && a[1] === 'Support team'), 'addToCall passes who to bring in');
+const conf = await c.joinConference('cf-0123456789ab', '1002');
+check(conf.id === 'call-conf' && calls.some(([n, a]) => n === 'joinConference' && a[0] === 'cf-0123456789ab'), 'joinConference returns the 3-way call');
 const call = await c.dial('1002');
 check(call.id === 'call-1' && call.peerSipUser === '1002', 'dial returns a Call with the native id');
 await call.setMuted(true);

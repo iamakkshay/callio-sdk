@@ -80,6 +80,11 @@ final class SignallingSIPTransport: SIPTransport {
         return "me:" + id
     }
 
+    func sendSignal(to sipUser: String, json: String) async throws {
+        guard let c = client else { throw InCallError.notRegistered }
+        _ = try await c.message(toSip: sipUser, contentType: "application/json", body: json)
+    }
+
     func setTyping(_ typing: Bool, to sipUser: String) async {
         let body = #"{"t":"typing","on":\#(typing)}"#
         _ = try? await client?.message(toSip: sipUser, contentType: "application/json", body: body)

@@ -24,6 +24,7 @@ internal class WebRtcMedia(context: Context, session: Session, private val force
     private val factory: PeerConnectionFactory
     private val pc: PeerConnection
     private val audioTrack: AudioTrack
+    private val audioSender: RtpSender?
     private val hasTurn = session.turn != null
     private val hasStun = session.stun != null
 
@@ -64,7 +65,14 @@ internal class WebRtcMedia(context: Context, session: Session, private val force
         }
         val source = factory.createAudioSource(voice)
         audioTrack = factory.createAudioTrack("audio0", source)
-        pc.addTrack(audioTrack, listOf("stream0"))
+        audioSender = pc.addTrack(audioTrack, listOf("stream0"))
+    }
+
+    /** DTMF as RFC 4733 telephone-event packets on the audio sender, as the web engine does. */
+    fun sendDtmf(tones: String) {
+        val dtmf = audioSender?.dtmf()
+        if (dtmf == null || !dtmf.canInsertDtmf()) throw InCallException.MediaFailed("DTMF isn't available on this call")
+        if (!dtmf.insertDtmf(tones, 100, 70)) throw InCallException.MediaFailed("DTMF couldn't be sent")
     }
 
     // Outgoing: a candidate-laden offer (fix #2)

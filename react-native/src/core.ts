@@ -21,6 +21,12 @@ export type Events = {
   callState: { callId: string; state: CallState; reason?: CallEndReason };
   quality: { quality: CallQuality };
   message: { peerSip: string; message: Message };
+  /** A sent message changed state; 'queued' means the person is offline and gets it when they're back. */
+  messageStatus: { messageId: string; status: string };
+  /** Someone invites you into a 3-way call; accept with joinConference(room, from.sipUser). */
+  conferenceInvite: { room: string; from: { sipUser: string; displayName: string }; with: string[] };
+  /** You followed the other person into a 3-way call they started; this is the new call. */
+  conferenceStarted: { callId: string };
   failure: { code: string; message: string };
   audioRoute: { route: AudioRoute };
 };
@@ -34,6 +40,8 @@ export interface NativeInCall {
   answer(): Promise<void>;
   decline(): Promise<void>;
   hangup(): Promise<void>;
+  addToCall(sipUser: string, displayName: string): Promise<void>;
+  joinConference(room: string, fromSip: string): Promise<string>;
   setMuted(muted: boolean): Promise<void>;
   setHold(held: boolean): Promise<void>;
   sendDtmf(tone: string): Promise<void>;
@@ -113,6 +121,13 @@ export class InCallClient {
   answer() { return this.n.answer(); }
   decline() { return this.n.decline(); }
   hangup() { return this.n.hangup(); }
+  /**
+   * Bring someone into the current call as a 3-way call (for example a rider adding the support team). The person
+   * you're talking to follows you in. To hand the call over (a warm transfer), hang up once they're talking.
+   */
+  addToCall(sipUser: string, displayName = '') { return this.n.addToCall(sipUser, displayName); }
+  /** Accept a conferenceInvite; ends the current call first if there is one. */
+  async joinConference(room: string, fromSip: string): Promise<Call> { return new Call(this.n, await this.n.joinConference(room, fromSip), room); }
   setMuted(muted: boolean) { return this.n.setMuted(muted); }
   setHold(held: boolean) { return this.n.setHold(held); }
   sendDtmf(tone: string) {

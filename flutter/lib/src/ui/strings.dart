@@ -41,6 +41,7 @@ class CallioStrings {
     this.delivered = 'Delivered',
     this.read = 'Read',
     this.failed = 'Not sent',
+    this.queued = 'Will deliver when they\'re online',
     this.audioOutput = 'Audio output',
     this.call = 'Call',
   });
@@ -49,7 +50,7 @@ class CallioStrings {
   final String declined, missed, noAnswer, busy, unreachable;
   final String answer, decline, end, mute, unmute, speaker, earpiece, bluetooth, hold, resume, keypad, hideKeypad, chat;
   final String qualityGood, qualityFair, qualityPoor, qualityUnknown;
-  final String messageHint, send, shareLocation, noMessages, sending, sent, delivered, read, failed, audioOutput, call;
+  final String messageHint, send, shareLocation, noMessages, sending, sent, delivered, read, failed, queued, audioOutput, call;
 
   /// Text for a call's end reason as the SDK reports it (ended, declined, missed, no-answer, busy, unreachable).
   String endReason(String? reason) => switch (reason) {

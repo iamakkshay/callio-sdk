@@ -4,6 +4,20 @@ All SDKs (iOS, Android, Flutter, web engine) share one version, kept in `sdk/VER
 [semantic versioning](https://semver.org): a **major** bump breaks apps, a **minor** adds features, a **patch** fixes.
 See `docs/SDK_VERSIONING.md` for the support policy.
 
+## 0.3.1
+
+Messages reach people who are offline, and an app can bring a third person into a call.
+
+- Android, iOS: a message (or shared location) to someone who isn't connected is held by the platform and delivered
+  when they're back, instead of failing with "MESSAGE failed (480)". It shows as `queued`. Held messages are
+  collected each time the SDK connects.
+- Android, iOS: `addToCall(contact)` turns the current call into a 3-way call, for example a rider adding the
+  support team. Hang up afterwards to hand the call over (a warm transfer); the other two stay connected.
+- React Native: `addToCall`, `joinConference`, and the events `conferenceInvite`, `conferenceStarted` and
+  `messageStatus` (`queued` when the person is offline).
+- Flutter: `MessageStatus.queued`, shown in `ChatView`.
+- Android: keypad tones (DTMF) during a call.
+
 ## 0.3.0
 Flutter becomes a first-class platform SDK; https/wss are required unless a development flag is set; tokens can be
 bound to one device.

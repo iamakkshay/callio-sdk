@@ -1,3 +1,8 @@
+## 0.3.1
+
+- Uses Callio Android and iOS SDKs 0.3.1: messages to someone who is offline are delivered when they're back
+  (`MessageStatus.queued`), and keypad tones work on Android.
+
 ## 0.3.0
 
 - Uses Callio Android and iOS SDKs 0.3.0. Flutter is now a full platform SDK: the plugin runs on the native SDKs, with ready-made call and chat screens.

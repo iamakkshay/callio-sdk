@@ -8,7 +8,8 @@ enum CallDirection { incoming, outgoing }
 enum MessageSender { me, peer }
 
 /// Delivery state of a chat message (FR-CHAT-02).
-enum MessageStatus { sending, sent, delivered, read, failed }
+/// `queued`: the peer wasn't connected, so the platform holds the message and delivers it when they're back.
+enum MessageStatus { sending, sent, delivered, read, failed, queued }
 
 /// Where call audio plays (FR-CALL-04).
 enum AudioRoute { earpiece, speaker, bluetooth }

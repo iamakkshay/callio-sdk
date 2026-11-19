@@ -1,6 +1,6 @@
 # CocoaPods for the incall_flutter example. InCallSDK (the native Callio iOS SDK) is not on the CocoaPods trunk,
 # so it is declared here: from this repository's sources, or (in your own app) from the released SDK repo:
-#   pod 'InCallSDK', :git => 'https://github.com/iamakkshay/callio-sdk.git', :tag => '0.3.0'
+#   pod 'InCallSDK', :git => 'https://github.com/iamakkshay/callio-sdk.git', :tag => '0.3.1'
 platform :ios, '15.0'
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.

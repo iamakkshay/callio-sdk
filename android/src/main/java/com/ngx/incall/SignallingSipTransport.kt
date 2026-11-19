@@ -48,6 +48,10 @@ internal class SignallingSipTransport : SipTransport {
         return id
     }
 
+    override suspend fun sendSignal(sipUser: String, json: String) {
+        (client ?: throw InCallException.NotRegistered).message(sipUser, "application/json", json)
+    }
+
     override suspend fun setTyping(typing: Boolean, sipUser: String) {
         try { client?.message(sipUser, "application/json", JSONObject().put("t", "typing").put("on", typing).toString()) } catch (_: Exception) {}
     }

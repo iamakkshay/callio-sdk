@@ -64,6 +64,35 @@ internal class PlatformApi(
         }
     }
 
+    /** FR-CALL-14: a conference room for these people (extensions); returns the number to dial. */
+    suspend fun createConference(with: List<String>): String {
+        val r = try { post("/api/conferences", JSONObject().put("with", JSONArray(with))) }
+        catch (e: InCallException.Network) {
+            if (e.reason == "HTTP 503") throw InCallException.FeatureDisabled("3-way calls") else throw e
+        }
+        return JSONObject(r).getString("dial")
+    }
+
+    /** FR-CHAT-03: hold a message for someone who isn't connected; the platform delivers it (and wakes them). */
+    suspend fun queueMessage(toSip: String, body: JSONObject) {
+        post("/api/messages", JSONObject().put("to", toSip).put("body", body))
+    }
+
+    /** Messages held for this user while they weren't connected, oldest first. */
+    suspend fun pendingMessages(): List<PendingMessage> {
+        val arr = JSONObject(get("/api/messages/pending")).optJSONArray("messages") ?: return emptyList()
+        return (0 until arr.length()).mapNotNull { i ->
+            val o = arr.getJSONObject(i)
+            val body = o.optJSONObject("body") ?: return@mapNotNull null
+            PendingMessage(o.getLong("id"), o.optString("fromSip").takeIf { it.isNotEmpty() && it != "null" }, body)
+        }
+    }
+
+    /** Confirm these held messages arrived, so they aren't handed over again. */
+    suspend fun ackMessages(ids: List<Long>) {
+        if (ids.isNotEmpty()) post("/api/messages/ack", JSONObject().put("ids", JSONArray(ids)))
+    }
+
     suspend fun uploadDiagnostics(summary: JSONObject) {
         runCatching { post("/api/diag", JSONObject().put("summary", summary)) }
     }
@@ -131,3 +160,5 @@ internal class PlatformApi(
     private fun JSONObject.optStringOrNull(key: String): String? =
         if (isNull(key) || !has(key)) null else optString(key)
 }
+
+internal data class PendingMessage(val id: Long, val fromSip: String?, val body: JSONObject)

@@ -70,6 +70,44 @@ actor PlatformAPI {
         return Dictionary(body.presence.map { ($0.sipUser, $0.online) }, uniquingKeysWith: { a, _ in a })
     }
 
+    /// FR-CALL-14: a conference room for these people (extensions); returns the number to dial.
+    func createConference(with users: [String]) async throws -> String {
+        let data: Data
+        do { data = try await postJSON("/api/conferences", body: ["with": users]) }
+        catch InCallError.network(let r) where r == "HTTP 503" { throw InCallError.featureDisabled("3-way calls") }
+        struct Room: Decodable { let dial: String }
+        return try JSONDecoder().decode(Room.self, from: data).dial
+    }
+
+    /// FR-CHAT-03: hold a message for someone who isn't connected; the platform delivers it (and wakes them).
+    func queueMessage(toSip: String, key: String, text: String?, location: SharedLocation?) async throws {
+        var body: [String: Any] = ["key": key]
+        if let location {
+            body["t"] = "loc"; body["loc"] = ["lat": location.lat, "lng": location.lng, "label": location.label]
+        } else {
+            body["t"] = "text"; body["text"] = text ?? ""
+        }
+        _ = try await postJSON("/api/messages", body: ["to": toSip, "body": body])
+    }
+
+    /// Messages held for this user while they weren't connected, oldest first.
+    func pendingMessages() async throws -> [PendingMessage] {
+        struct Loc: Decodable { let lat: Double; let lng: Double; let label: String? }
+        struct Body: Decodable { let t: String?; let key: String?; let text: String?; let loc: Loc? }
+        struct Row: Decodable { let id: Int64; let fromSip: String?; let body: Body? }
+        struct Wrap: Decodable { let messages: [Row] }
+        return try await get("/api/messages/pending", as: Wrap.self).messages.map { r in
+            let loc = r.body?.loc.map { SharedLocation(lat: $0.lat, lng: $0.lng, label: $0.label ?? "Shared location") }
+            return PendingMessage(id: r.id, fromSip: r.fromSip, kind: r.body?.t ?? "", key: r.body?.key, text: r.body?.text, location: loc)
+        }
+    }
+
+    /// Confirm these held messages arrived, so they aren't handed over again.
+    func ackMessages(_ ids: [Int64]) async throws {
+        guard !ids.isEmpty else { return }
+        _ = try await postJSON("/api/messages/ack", body: ["ids": ids])
+    }
+
     func uploadDiagnostics(_ summary: [String: Any]) async {
         _ = try? await postJSON("/api/diag", body: ["summary": summary])
     }
@@ -119,4 +157,13 @@ actor PlatformAPI {
             throw InCallError.network("HTTP \(http.statusCode)")
         }
     }
+}
+
+struct PendingMessage: Sendable {
+    let id: Int64
+    let fromSip: String?
+    let kind: String
+    let key: String?
+    let text: String?
+    let location: SharedLocation?
 }

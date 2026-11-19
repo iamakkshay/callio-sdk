@@ -10,6 +10,8 @@ RCT_EXTERN_METHOD(dial:(NSString *)sipUser resolve:(RCTPromiseResolveBlock)resol
 RCT_EXTERN_METHOD(answer:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(decline:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(hangup:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(addToCall:(NSString *)sipUser displayName:(NSString *)displayName resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(joinConference:(NSString *)room fromSip:(NSString *)fromSip resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(setMuted:(BOOL)muted resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(setHold:(BOOL)held resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(sendDtmf:(NSString *)tone resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject)

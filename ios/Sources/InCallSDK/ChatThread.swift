@@ -8,25 +8,37 @@ public final class ChatThread {
     public private(set) var messages: [Message] = []
 
     private weak var transport: (any SIPTransport)?
+    /// Hands a message to the platform when the peer isn't connected (FR-CHAT-03): (key, text, location).
+    private let queue: (@Sendable (String, String?, SharedLocation?) async throws -> Void)?
 
-    init(peer: Contact, transport: any SIPTransport) {
-        self.peer = peer; self.transport = transport
+    init(peer: Contact, transport: any SIPTransport, queue: (@Sendable (String, String?, SharedLocation?) async throws -> Void)? = nil) {
+        self.peer = peer; self.transport = transport; self.queue = queue
     }
 
+    /// Sends now if the peer is connected; otherwise the platform holds it (`.queued`) until they are.
     @discardableResult
-    public func send(text: String) async throws -> Message {
-        let id = try await transport?.sendMessage(to: peer.sipUser, text: text, location: nil) ?? UUID().uuidString
-        let msg = Message(id: id, from: .me, text: text, location: nil, status: .sending)
+    public func send(text: String) async throws -> Message { try await deliver(text: text, location: nil) }
+
+    @discardableResult
+    public func sendLocation(_ location: SharedLocation) async throws -> Message { try await deliver(text: nil, location: location) }
+
+    private func deliver(text: String?, location: SharedLocation?) async throws -> Message {
+        var msg: Message
+        do {
+            let id = try await transport?.sendMessage(to: peer.sipUser, text: text, location: location) ?? UUID().uuidString
+            msg = Message(id: id, from: .me, text: text, location: location, status: .sending)
+        } catch let InCallError.network(reason) where queue != nil && Self.peerUnreachable(reason) {
+            let id = "me:" + String(UUID().uuidString.prefix(10)).lowercased()
+            try await queue?(id, text, location)
+            msg = Message(id: id, from: .me, text: text, location: location, status: .queued)
+        }
         messages.append(msg)
         return msg
     }
 
-    @discardableResult
-    public func sendLocation(_ location: SharedLocation) async throws -> Message {
-        let id = try await transport?.sendMessage(to: peer.sipUser, text: nil, location: location) ?? UUID().uuidString
-        let msg = Message(id: id, from: .me, text: nil, location: location, status: .sending)
-        messages.append(msg)
-        return msg
+    /// 480 / 404 / 408: nobody to deliver to right now (not connected, or the connection went quiet).
+    nonisolated static func peerUnreachable(_ reason: String) -> Bool {
+        reason.range(of: #"\((480|404|408)\)"#, options: .regularExpression) != nil
     }
 
     public func setTyping(_ typing: Bool) async { await transport?.setTyping(typing, to: peer.sipUser) }

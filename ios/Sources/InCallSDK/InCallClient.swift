@@ -68,6 +68,7 @@ public final class InCallClient {
 
     private let config: InCallConfig
     private let api: PlatformAPI
+    fileprivate var drainingHeld = false   // a held-message handover is running (FR-CHAT-03)
     /// This install's device id, sent as X-Device-Id: pass it to your server so it can request a token for this
     /// device only (POST /api/v1/tokens with deviceId).
     public let deviceId: String
@@ -204,7 +205,10 @@ public final class InCallClient {
 
     public func thread(with contact: Contact) -> ChatThread {
         if let t = threads[contact.sipUser] { return t }
-        let t = ChatThread(peer: contact, transport: transport)
+        let api = self.api, to = contact.sipUser
+        let t = ChatThread(peer: contact, transport: transport) { key, text, location in
+            try await api.queueMessage(toSip: to, key: key, text: text, location: location)
+        }
         threads[contact.sipUser] = t
         return t
     }
@@ -218,6 +222,25 @@ public final class InCallClient {
     }
 
     private var pendingConference: String?
+
+    /// Bring `contact` into the current call as a 3-way call (FR-CALL-14), for example a rider adding the support
+    /// team. The person you're talking to follows you into the call, `contact` is invited, and you join it. To hand
+    /// the call over (a warm transfer), hang up once they're talking: the other two stay connected.
+    /// Throws if there's no connected call, or if `contact` isn't online (the current call is then left as it was).
+    public func addToCall(_ contact: Contact) async throws {
+        guard let call = currentCall, call.state == .connected else { throw InCallError.network("There's no connected call to add them to") }
+        let room = try await api.createConference(with: [call.peer.sipUser, contact.sipUser])
+        func invite(move: Bool) -> String {
+            var o: [String: Any] = ["t": "conf", "room": room, "with": [call.peer.displayName, contact.displayName]]
+            if move { o["move"] = true }
+            return String(data: (try? JSONSerialization.data(withJSONObject: o)) ?? Data(), encoding: .utf8) ?? "{}"
+        }
+        do { try await transport.sendSignal(to: contact.sipUser, json: invite(move: false)) }   // first: if they're offline, nothing changes
+        catch InCallError.network(let r) where ChatThread.peerUnreachable(r) { throw InCallError.network("\(contact.displayName) isn't online") }
+        try await transport.sendSignal(to: call.peer.sipUser, json: invite(move: true))
+        pendingConference = room   // when this call ends, we dial the room (see transport(callDidChange:))
+        await call.hangup()
+    }
 
     private func dialConference(_ room: String) async throws -> Call {
         try await dial(Contact(name: room, sipUser: room, displayName: "3-way call", userType: .agent))
@@ -247,7 +270,30 @@ public final class InCallClient {
 // MARK: - Transport callbacks → delegate + event emission
 
 extension InCallClient: SIPTransportEvents {
-    func transport(registrationDidChange state: RegistrationState) { registrationState = state }
+    func transport(registrationDidChange state: RegistrationState) {
+        registrationState = state
+        if state == .registered && features.chat { Task { await drainHeldMessages() } }   // on every (re)connect
+    }
+
+    /// FR-CHAT-03: hand over messages the platform held while this user wasn't connected, then confirm them.
+    private func drainHeldMessages() async {
+        guard !drainingHeld else { return }
+        drainingHeld = true
+        defer { drainingHeld = false }
+        guard let held = try? await api.pendingMessages() else { return }
+        var delivered: [Int64] = []
+        for m in held {
+            guard let from = m.fromSip else { continue }
+            let key = m.key ?? "held:\(m.id)"
+            switch m.kind {
+            case "text": transport(messageFrom: from, text: m.text ?? "", location: nil, messageId: key)
+            case "loc": if let loc = m.location { transport(messageFrom: from, text: nil, location: loc, messageId: key) }
+            default: break
+            }
+            delivered.append(m.id)   // an unknown kind is still confirmed, so it isn't offered forever
+        }
+        try? await api.ackMessages(delivered)
+    }
 
     func transport(incomingCallFrom sipUser: String, callId: String) {
         let call = Call(id: callId, peer: contact(forSip: sipUser), direction: .incoming,

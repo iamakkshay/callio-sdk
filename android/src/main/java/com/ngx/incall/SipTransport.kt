@@ -33,6 +33,8 @@ internal interface SipTransport {
 
     suspend fun sendMessage(sipUser: String, text: String?, location: SharedLocation?): String
     suspend fun setTyping(typing: Boolean, sipUser: String)
+    /** A control message (JSON over SIP MESSAGE), such as a 3-way call invitation. */
+    suspend fun sendSignal(sipUser: String, json: String) {}
 }
 
 /** Callbacks the transport raises; the client translates these into listener calls. */

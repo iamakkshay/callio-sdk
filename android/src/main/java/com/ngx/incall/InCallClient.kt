@@ -165,7 +165,30 @@ class InCallClient internal constructor(
     }
 
     fun thread(contact: Contact): ChatThread =
-        threads.getOrPut(contact.sipUser) { ChatThread(contact, transport) }
+        threads.getOrPut(contact.sipUser) { ChatThread(contact, transport) { body -> api.queueMessage(contact.sipUser, body) } }
+
+    /** FR-CHAT-03: hand over messages the platform held while this user wasn't connected, then confirm them. */
+    private val draining = java.util.concurrent.atomic.AtomicBoolean(false)
+    private suspend fun drainHeldMessages() {
+        if (!draining.compareAndSet(false, true)) return
+        try {
+            val held = runCatching { api.pendingMessages() }.getOrNull() ?: return
+            val delivered = mutableListOf<Long>()
+            for (m in held) {
+                val from = m.fromSip ?: continue
+                val b = m.body
+                val key = b.optString("key").ifEmpty { "held:${m.id}" }
+                when (b.optString("t")) {
+                    "text" -> onMessage(from, b.optString("text"), null, key)
+                    "loc" -> b.optJSONObject("loc")?.let { l ->
+                        onMessage(from, null, SharedLocation(l.optDouble("lat"), l.optDouble("lng"), l.optString("label", "Shared location")), key)
+                    }
+                }
+                delivered += m.id   // anything we can't show (an unknown kind) is still confirmed, so it isn't offered forever
+            }
+            runCatching { api.ackMessages(delivered) }
+        } finally { draining.set(false) }
+    }
 
     /** Per-user call history (FR-CALL-08). */
     /**
@@ -178,6 +201,24 @@ class InCallClient internal constructor(
     }
 
     private var pendingConference: String? = null
+
+    /**
+     * Bring [contact] into the current call as a 3-way call (FR-CALL-14), for example a rider adding the support
+     * team. The person you're talking to follows you into the call, [contact] is invited, and you join it. To hand
+     * the call over (a warm transfer), hang up once they're talking: the other two stay connected.
+     * Throws if there's no connected call, or if [contact] isn't online (the current call is then left as it was).
+     */
+    suspend fun addToCall(contact: Contact) {
+        val call = currentCall?.takeIf { it.state is CallState.Connected } ?: throw IllegalStateException("There's no connected call to add them to")
+        val room = api.createConference(listOf(call.peer.sipUser, contact.sipUser))
+        val names = org.json.JSONArray(listOf(call.peer.displayName, contact.displayName))
+        fun invite(move: Boolean) = JSONObject().put("t", "conf").put("room", room).put("with", names).also { if (move) it.put("move", true) }.toString()
+        try { transport.sendSignal(contact.sipUser, invite(move = false)) }   // first: if they're offline, nothing changes
+        catch (e: InCallException.Network) { throw if (peerUnreachable(e)) InCallException.Network("${contact.displayName} isn't online") else e }
+        transport.sendSignal(call.peer.sipUser, invite(move = true))
+        pendingConference = room   // when this call ends, we dial the room (see onCallStateChanged)
+        call.hangup()
+    }
 
     private suspend fun dialConference(room: String): Call =
         dial(Contact(name = room, sipUser = room, displayName = "3-way call", userType = UserType.AGENT))
@@ -192,7 +233,10 @@ class InCallClient internal constructor(
 
     // ---- transport callbacks → listeners + event emission ----
 
-    override fun onRegistrationChanged(state: RegistrationState) { registrationState = state }
+    override fun onRegistrationChanged(state: RegistrationState) {
+        registrationState = state
+        if (state == RegistrationState.REGISTERED && features.chat) scope.launch { drainHeldMessages() }   // on every (re)connect
+    }
 
     override fun onIncomingCall(sipUser: String, callId: String) {
         val call = Call(callId, contactForSip(sipUser), CallDirection.INCOMING, CallState.Ringing, transport).also { it.audio = audio }

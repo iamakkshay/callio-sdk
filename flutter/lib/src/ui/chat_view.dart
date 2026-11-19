@@ -212,6 +212,7 @@ class _Bubble extends StatelessWidget {
       MessageStatus.delivered => (Icons.done_all, strings.delivered),
       MessageStatus.read => (Icons.done_all, strings.read),
       MessageStatus.failed => (Icons.error_outline, strings.failed),
+      MessageStatus.queued => (Icons.schedule_send, strings.queued),
     };
     return Semantics(
       label: label,

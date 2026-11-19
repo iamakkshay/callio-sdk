@@ -8,7 +8,7 @@
 // changes): set `callio.localSdk=true` in the host app's android/gradle.properties (uses ../../../android
 // relative to this plugin), or `callio.localSdk=/absolute/path/to/sdk/android`.
 group 'com.ngx.incall.flutter'
-version '0.3.0'
+version '0.3.1'
 
 buildscript {
     ext.kotlin_version = '2.2.20'

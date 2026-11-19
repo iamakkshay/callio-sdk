@@ -66,7 +66,8 @@ public struct CallQuality: Sendable, Equatable {
 public enum AudioRoute: String, Sendable { case speaker, earpiece, bluetooth }
 
 public enum MessageSender: String, Sendable { case me, peer }
-public enum MessageStatus: String, Sendable { case sending, sent, delivered, read, failed }
+/// `queued`: the peer wasn't connected, so the platform holds the message and delivers it when they're back.
+public enum MessageStatus: String, Sendable { case sending, sent, delivered, read, failed, queued }
 
 public struct SharedLocation: Codable, Sendable, Equatable {
     public let lat: Double

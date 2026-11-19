@@ -63,15 +63,29 @@ class CallioInCallModule(private val ctx: ReactApplicationContext) : ReactContex
     @ReactMethod fun answer(promise: Promise) = run(promise, "answer") { client?.currentCall?.answer(); null }
     @ReactMethod fun decline(promise: Promise) = run(promise, "decline") { client?.currentCall?.decline(); null }
     @ReactMethod fun hangup(promise: Promise) = run(promise, "hangup") { client?.currentCall?.hangup(); null }
+    /** FR-CALL-14: bring someone into the current call (3-way). Hang up afterwards to hand the call over. */
+    @ReactMethod fun addToCall(sipUser: String, displayName: String, promise: Promise) = run(promise, "addToCall") {
+        val c = contact(sipUser)
+        requireClient().addToCall(if (displayName.isNotEmpty()) c.copy(displayName = displayName) else c); null
+    }
+    /** Accept a conferenceInvite: leaves the current call (if any) and joins the 3-way call. */
+    @ReactMethod fun joinConference(room: String, fromSip: String, promise: Promise) = run(promise, "joinConference") {
+        requireClient().joinConference(ConferenceInvite(room, contact(fromSip), emptyList())).id
+    }
     @ReactMethod fun setMuted(muted: Boolean, promise: Promise) = run(promise, "setMuted") { client?.currentCall?.setMuted(muted); null }
     @ReactMethod fun setHold(held: Boolean, promise: Promise) = run(promise, "setHold") { client?.currentCall?.setHold(held); null }
     @ReactMethod fun sendDtmf(tone: String, promise: Promise) = run(promise, "sendDtmf") { client?.currentCall?.sendDtmf(tone); null }
     @ReactMethod fun setAudioRoute(route: String, promise: Promise) = run(promise, "setAudioRoute") {
         client?.currentCall?.setAudioRoute(AudioRoute.valueOf(route.uppercase())); null
     }
-    @ReactMethod fun sendText(to: String, text: String, promise: Promise) = run(promise, "sendText") { requireClient().thread(contact(to)).send(text).id }
+    @ReactMethod fun sendText(to: String, text: String, promise: Promise) = run(promise, "sendText") { announce(requireClient().thread(contact(to)).send(text)) }
     @ReactMethod fun sendLocation(to: String, lat: Double, lng: Double, label: String, promise: Promise) = run(promise, "sendLocation") {
-        requireClient().thread(contact(to)).sendLocation(SharedLocation(lat, lng, label)).id
+        announce(requireClient().thread(contact(to)).sendLocation(SharedLocation(lat, lng, label)))
+    }
+    /** A message the platform is holding for someone offline: say so (messageStatus "queued"), then return its id. */
+    private fun announce(m: Message): String {
+        if (m.status == MessageStatus.QUEUED) onMessageStatusChanged(m)
+        return m.id
     }
     @ReactMethod fun setTyping(to: String, typing: Boolean, promise: Promise) = run(promise, "setTyping") { client?.thread(contact(to))?.setTyping(typing); null }
     @ReactMethod fun callHistory(limit: Double, promise: Promise) = run(promise, "callHistory") {
@@ -118,6 +132,15 @@ class CallioInCallModule(private val ctx: ReactApplicationContext) : ReactContex
             message.location?.let { l -> putMap("location", Arguments.createMap().apply { putDouble("lat", l.lat); putDouble("lng", l.lng); putString("label", l.label) }) }
         })
     }
+    override fun onMessageStatusChanged(message: Message) = event("messageStatus") {
+        putString("messageId", message.id); putString("status", message.status.name.lowercase())
+    }
+    override fun onConferenceInvite(invite: ConferenceInvite) = event("conferenceInvite") {
+        putString("room", invite.room)
+        putMap("from", Arguments.createMap().apply { putString("sipUser", invite.from.sipUser); putString("displayName", invite.from.displayName) })
+        putArray("with", Arguments.createArray().apply { invite.with.forEach { pushString(it) } })
+    }
+    override fun onConferenceStarted(call: Call) = event("conferenceStarted") { putString("callId", call.id) }
     override fun onAudioRouteChanged(route: AudioRoute) = event("audioRoute") { putString("route", route.name.lowercase()) }
     override fun onFailure(error: InCallException) = event("failure") { putString("code", error.javaClass.simpleName); putString("message", error.message ?: "") }
 

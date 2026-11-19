@@ -143,7 +143,12 @@ internal class WebRtcSignallingSipTransport(private val context: Context) : SipT
         if (!ok) onMain { events?.onFailure(InCallException.Network(if (held) "couldn't put the call on hold" else "couldn't resume the call")) }
     }
     override suspend fun setAudioRoute(route: AudioRoute) {}          // via ConnectionService / AudioManager
-    override suspend fun sendDtmf(tone: String) {}                    // TODO: DtmfSender
+    /** RFC 4733 telephone-events through the WebRTC DTMF sender. Digits are never logged. */
+    override suspend fun sendDtmf(tone: String) {
+        require(tone.isNotEmpty() && tone.all { it in "0123456789*#ABCDabcd" }) { "DTMF tones are 0-9, *, # and A-D" }
+        val m = media ?: throw InCallException.NotRegistered
+        withContext(Dispatchers.Default) { m.sendDtmf(tone.uppercase()) }
+    }
     override suspend fun transfer(sipUser: String) {                 // blind transfer via in-dialog REFER
         (client ?: throw InCallException.NotRegistered).refer(sipUser)
     }
@@ -158,6 +163,10 @@ internal class WebRtcSignallingSipTransport(private val context: Context) : SipT
         else payload.put("t", "text").put("text", text ?: "")
         c.message(sipUser, "application/json", payload.toString())
         return id
+    }
+
+    override suspend fun sendSignal(sipUser: String, json: String) {
+        (client ?: throw InCallException.NotRegistered).message(sipUser, "application/json", json)
     }
 
     override suspend fun setTyping(typing: Boolean, sipUser: String) {

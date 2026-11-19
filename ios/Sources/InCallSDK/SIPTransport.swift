@@ -31,6 +31,8 @@ protocol SIPTransport: AnyObject {
 
     func sendMessage(to sipUser: String, text: String?, location: SharedLocation?) async throws -> String
     func setTyping(_ typing: Bool, to sipUser: String) async
+    /// A control message (JSON over SIP MESSAGE), such as a 3-way call invitation.
+    func sendSignal(to sipUser: String, json: String) async throws
 }
 
 /// Callbacks the transport raises; the client translates these into delegate calls.
@@ -77,4 +79,5 @@ final class StubSIPTransport: SIPTransport {
 
     func sendMessage(to sipUser: String, text: String?, location: SharedLocation?) async throws -> String { throw notImplemented }
     func setTyping(_ typing: Bool, to sipUser: String) async {}
+    func sendSignal(to sipUser: String, json: String) async throws { throw notImplemented }
 }

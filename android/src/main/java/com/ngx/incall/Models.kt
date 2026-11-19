@@ -60,7 +60,8 @@ data class CallQuality(
 enum class AudioRoute { SPEAKER, EARPIECE, BLUETOOTH }
 
 enum class MessageSender { ME, PEER }
-enum class MessageStatus { SENDING, SENT, DELIVERED, READ, FAILED }
+/** QUEUED: the peer wasn't connected, so the platform holds the message and delivers it when they're back. */
+enum class MessageStatus { SENDING, SENT, DELIVERED, READ, FAILED, QUEUED }
 
 data class SharedLocation(val lat: Double, val lng: Double, val label: String)
 
