@@ -4,6 +4,11 @@ All SDKs (iOS, Android, Flutter, web engine) share one version, kept in `sdk/VER
 [semantic versioning](https://semver.org): a **major** bump breaks apps, a **minor** adds features, a **patch** fixes.
 See `docs/SDK_VERSIONING.md` for the support policy.
 
+## React Native 0.3.2
+
+Documentation only: the README covers messages to people who are offline, 3-way calls and handing a call over, and
+lists every event. Uses the native SDKs 0.3.1.
+
 ## 0.3.1
 
 Messages reach people who are offline, and an app can bring a third person into a call.

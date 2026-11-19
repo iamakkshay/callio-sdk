@@ -52,11 +52,62 @@ InCall.on('callState', ({ state, reason }) => setCallState(state, reason));   //
 const call = await InCall.dial('1002');
 await call.setMuted(true);
 await InCall.sendText('1002', 'On my way');
-await InCall.sendLocation('1002', { lat: 24.71, lng: 46.67 });
+await InCall.sendLocation('1002', { lat: 24.71, lng: 46.67, label: 'Gate 3' });
 await InCall.registerPush(voipOrFcmToken);
 ```
 
-Events: `registration`, `incomingCall`, `callState`, `quality`, `message`, `failure` (types in `src/core.ts`).
+### Messages to someone who is offline
+
+`sendText` and `sendLocation` work whether or not the other person's app is connected. If they're offline, the
+platform holds the message and delivers it when they're back, and you get a `messageStatus` event with
+`status: 'queued'` for that message id. Messages held for this user arrive as ordinary `message` events when the
+SDK connects.
+
+```ts
+const id = await InCall.sendText('1002', 'Your order is outside');
+InCall.on('messageStatus', ({ messageId, status }) => {
+  if (messageId === id && status === 'queued') showNote("Will deliver when they're online");
+});
+```
+
+### Adding someone to a call (3-way) and handing a call over
+
+During a connected call, `addToCall` brings a third person in, for example a rider adding the support team. The
+person you're talking to moves into the 3-way call with you, and the new person is asked to join. Hang up
+afterwards to hand the call over (a warm transfer): the other two stay connected.
+
+```ts
+await InCall.addToCall(supportSip, 'Support team');   // throws if they're not online; the call is unchanged
+
+// On the support team's phone:
+InCall.on('conferenceInvite', async ({ room, from, with: names }) => {
+  if (await ask(`${from.displayName} wants you on a call with ${names.join(' and ')}`)) {
+    await InCall.joinConference(room, from.sipUser);
+  }
+});
+
+// On the customer's phone, the call moves into the 3-way call by itself:
+InCall.on('conferenceStarted', ({ callId }) => showTitle('3-way call'));
+```
+
+3-way calls need a conference server on the platform; without one, `addToCall` reports that the feature is off.
+
+### Events
+
+| Event | Payload |
+|---|---|
+| `registration` | `{ state }`: `connecting`, `registered`, `offline` |
+| `incomingCall` | `{ callId, from }` |
+| `callState` | `{ callId, state, reason? }`; `reason` when ended: `ended`, `declined`, `missed`, `no-answer`, `busy`, `unreachable` |
+| `quality` | `{ quality: { rttMs, jitterMs, lossPct, mos } }` |
+| `message` | `{ peerSip, message }`; `message.text` or `message.location` |
+| `messageStatus` | `{ messageId, status }`; `queued` when the person is offline |
+| `conferenceInvite` | `{ room, from, with }`; accept with `joinConference(room, from.sipUser)` |
+| `conferenceStarted` | `{ callId }`: you followed the other person into a 3-way call |
+| `audioRoute` | `{ route }`: `earpiece`, `speaker`, `bluetooth` |
+| `failure` | `{ code, message }` |
+
+Types for all of these are in `src/core.ts`.
 
 ## How it fits together
 
