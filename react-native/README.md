@@ -1,12 +1,16 @@
-# @clarigoinfotech/callio-react-native
+# @apurohit2/callio-react-native
 
 Callio calling, chat and location for React Native (FR-SDK-02). It wraps the native iOS (`InCallSDK`) and Android
 (`com.ngx.incall`) SDKs, so calls get the same media, push wake-up and CallKit / ConnectionService behaviour as
 native apps.
 
 ```sh
-npm install @clarigoinfotech/callio-react-native
+npm install @apurohit2/callio-react-native
 ```
+
+> **Private package.** Installing it needs an npm account that has been given access. Sign in with `npm login`,
+> or put the read-only token you were given in your project's `.npmrc`:
+> `//registry.npmjs.org/:_authToken=${NPM_TOKEN}` (set `NPM_TOKEN` in your environment or CI; don't commit the token).
 
 **iOS.** The native SDK (`InCallSDK`) is not on the CocoaPods trunk. Pin its source in `ios/Podfile`,
 inside your app target and before `use_native_modules!`, so CocoaPods never looks the name up on trunk:
@@ -40,7 +44,7 @@ For a lab server on plain http, pass `allowInsecureTransport: true` to `InCall.s
 only.
 
 ```ts
-import { InCall } from '@clarigoinfotech/callio-react-native';
+import { InCall } from '@apurohit2/callio-react-native';
 
 await InCall.start({
   baseUrl: 'https://api.example.sa',

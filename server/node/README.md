@@ -1,4 +1,4 @@
-# @clarigoinfotech/callio-server
+# @apurohit2/callio-server
 
 The Callio **server SDK for Node.js**: what your backend uses to call Callio's tenant API. It creates and
 manages app users, issues the short-lived tokens your mobile app signs in with, links customers and agents
@@ -27,7 +27,7 @@ npm install /path/to/clarigoinfotech-callio-server-0.1.0.tgz
 npm install /path/to/ngx-p2p/sdk/server/node     # run `npm install && npm run build` in that folder first
 ```
 
-Once published it will be `npm install @clarigoinfotech/callio-server`.
+Once published it will be `npm install @apurohit2/callio-server`.
 
 ## Quick start: give your app a token
 
@@ -35,7 +35,11 @@ Create an API key in the Callio admin console (your organisation → **API keys*
 secret store.
 
 ```ts
-import { Callio } from '@clarigoinfotech/callio-server';
+
+> **Private package.** Installing it needs an npm account that has been given access. Sign in with `npm login`,
+> or put the read-only token you were given in your project's `.npmrc`:
+> `//registry.npmjs.org/:_authToken=${NPM_TOKEN}` (set `NPM_TOKEN` in your environment or CI; don't commit the token).
+import { Callio } from '@apurohit2/callio-server';
 
 const callio = new Callio({
   apiKey: process.env.CALLIO_API_KEY,      // cio_<id>_<secret>
@@ -184,7 +188,7 @@ Every failure is a `CallioError` with `status` (0 when no response arrived), `me
 | `ConnectionError` / `TimeoutError` | 0 | No response, or none within `timeout` |
 
 ```ts
-import { ConflictError, RateLimitError } from '@clarigoinfotech/callio-server';
+import { ConflictError, RateLimitError } from '@apurohit2/callio-server';
 try {
   await callio.orders.create({ id, customer });
 } catch (e) {
@@ -216,7 +220,7 @@ that window, store each `event.id` and drop any you've already seen.
 
 ```ts
 import express from 'express';
-import { parseWebhook, WebhookVerificationError } from '@clarigoinfotech/callio-server';
+import { parseWebhook, WebhookVerificationError } from '@apurohit2/callio-server';
 
 const app = express();
 app.post('/callio/webhook', express.raw({ type: 'application/json' }), async (req, res) => {

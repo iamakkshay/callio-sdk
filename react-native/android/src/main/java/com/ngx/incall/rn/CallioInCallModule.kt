@@ -1,4 +1,4 @@
-// Android native module for @clarigoinfotech/callio-react-native (FR-SDK-02): React Native bridge <-> com.ngx.incall. Same calls
+// Android native module for @apurohit2/callio-react-native (FR-SDK-02): React Native bridge <-> com.ngx.incall. Same calls
 // as the Flutter plugin; events go out on one "CallioInCallEvent" channel as { event, ...payload }.
 package com.ngx.incall.rn
 

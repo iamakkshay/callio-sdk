@@ -1,4 +1,4 @@
-// @clarigoinfotech/callio-react-native Android module. The host app's React Native Gradle plugin provides react-android.
+// @apurohit2/callio-react-native Android module. The host app's React Native Gradle plugin provides react-android.
 apply plugin: 'com.android.library'
 apply plugin: 'org.jetbrains.kotlin.android'
 

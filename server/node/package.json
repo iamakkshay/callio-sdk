@@ -1,5 +1,5 @@
 {
-  "name": "@clarigoinfotech/callio-server",
+  "name": "@apurohit2/callio-server",
   "version": "0.1.0",
   "description": "Callio server SDK for Node.js: the tenant REST API (users, app tokens, orders, recordings, groups, events, CDR) and webhook verification",
   "type": "module",
@@ -23,6 +23,6 @@
     "@types/node": "^20.11.0",
     "typescript": "^5.4.0"
   },
-  "publishConfig": { "access": "public", "registry": "https://registry.npmjs.org/" },
+  "publishConfig": { "access": "restricted", "registry": "https://registry.npmjs.org/" },
   "license": "SEE LICENSE IN LICENSE"
 }

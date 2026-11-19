@@ -10,15 +10,15 @@ your contact centre, without ever sharing a phone number. These SDKs connect you
 | Android | `implementation("com.github.iamakkshay.callio-sdk:incall-sdk:0.3.1")` from JitPack | [android/](android) |
 | Android UI (Compose) | `implementation("com.github.iamakkshay.callio-sdk:incall-ui:0.3.1")` | [android-ui/](android-ui) |
 | Flutter | `flutter pub add incall_flutter` | [flutter/](flutter) |
-| React Native | `npm install @clarigoinfotech/callio-react-native` | [react-native/](react-native) |
-| Web (browser) | `npm install @clarigoinfotech/callio-web` | npm |
+| React Native | `npm install @apurohit2/callio-react-native` | [react-native/](react-native) |
+| Web (browser) | `npm install @apurohit2/callio-web` | npm |
 
 **Server SDKs** call the Callio REST API from your backend: create users, mint app tokens, read call records, and
 verify webhooks.
 
 | Language | Install | Package |
 |---|---|---|
-| Node.js | `npm install @clarigoinfotech/callio-server` | [server/node/](server/node) |
+| Node.js | `npm install @apurohit2/callio-server` | [server/node/](server/node) |
 | Python | `pip install callio-server` | [server/python/](server/python) |
 | Go | `go get github.com/iamakkshay/callio-sdk/server/go@v0.1.0` | [server/go/](server/go) |
 | Java, PHP, .NET | Build from source for now | [server/](server) |
