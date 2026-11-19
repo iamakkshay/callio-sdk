@@ -110,7 +110,7 @@ object InCallTelecom {
         override fun onCallStateChanged(call: Call) {
             val conn = byCallId[call.id] ?: return
             when (val s = call.state) {
-                is CallState.Connected -> { conn.setActive(); client?.audio?.startCall(); cancelNotification() }
+                is CallState.Connected -> { Ringer.stop(); conn.setActive(); client?.audio?.startCall(); cancelNotification() }
                 is CallState.OnHold -> conn.setOnHold()
                 is CallState.Ended -> conn.end(when (s.reason) {
                     CallEndReason.DECLINED -> DisconnectCause.REJECTED
@@ -153,6 +153,45 @@ object InCallTelecom {
     }
 }
 
+/**
+ * Self-managed calls ring through the app, not Telecom: play the phone's own ringtone (and vibrate) while a call
+ * rings. Follows the ringer switch: silent stays silent, vibrate only vibrates.
+ */
+internal object Ringer {
+    private var tone: android.media.Ringtone? = null
+    private var vibrator: android.os.Vibrator? = null
+
+    fun start(ctx: Context) {
+        stop()
+        val am = ctx.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+        val mode = am.ringerMode
+        if (mode == android.media.AudioManager.RINGER_MODE_SILENT) return
+        if (mode == android.media.AudioManager.RINGER_MODE_NORMAL) runCatching {
+            val uri = android.media.RingtoneManager.getActualDefaultRingtoneUri(ctx, android.media.RingtoneManager.TYPE_RINGTONE)
+                ?: android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_RINGTONE)
+            tone = android.media.RingtoneManager.getRingtone(ctx, uri)?.apply {
+                audioAttributes = android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION).build()
+                if (Build.VERSION.SDK_INT >= 28) isLooping = true
+                play()
+            }
+        }
+        runCatching {
+            val v = if (Build.VERSION.SDK_INT >= 31) (ctx.getSystemService(android.os.VibratorManager::class.java)).defaultVibrator
+                else @Suppress("DEPRECATION") ctx.getSystemService(Context.VIBRATOR_SERVICE) as android.os.Vibrator
+            vibrator = v
+            if (Build.VERSION.SDK_INT >= 26) v.vibrate(android.os.VibrationEffect.createWaveform(longArrayOf(0, 800, 600), 0))
+            else @Suppress("DEPRECATION") v.vibrate(longArrayOf(0, 800, 600), 0)
+        }
+    }
+
+    fun stop() {
+        runCatching { tone?.stop() }; tone = null
+        runCatching { vibrator?.cancel() }; vibrator = null
+    }
+}
+
 /** One self-managed Telecom call; the system's and the notification's actions route to the SDK. */
 class InCallConnection internal constructor(var callId: String, val name: String) : Connection() {
     internal var lastRoute: AudioRoute? = null
@@ -166,9 +205,10 @@ class InCallConnection internal constructor(var callId: String, val name: String
         setCallerDisplayName(name, TelecomManager.PRESENTATION_ALLOWED)
     }
 
-    override fun onShowIncomingCallUi() = InCallTelecom.showIncomingNotification(this)
+    override fun onShowIncomingCallUi() { InCallTelecom.showIncomingNotification(this); Ringer.start(InCallTelecom.appContext) }
 
     override fun onAnswer() {
+        Ringer.stop()
         InCallTelecom.cancelNotification()
         scope.launch {
             runCatching {
@@ -217,6 +257,7 @@ class InCallConnection internal constructor(var callId: String, val name: String
     }
 
     internal fun end(cause: Int) {
+        Ringer.stop()
         InCallTelecom.cancelNotification()
         if (state == STATE_DISCONNECTED) return
         setDisconnected(DisconnectCause(cause))

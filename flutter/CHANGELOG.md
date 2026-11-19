@@ -1,3 +1,7 @@
+## 0.3.3
+
+- Uses Callio Android and iOS SDKs 0.3.3: incoming calls ring with the phone's ringtone and vibration on Android.
+
 ## 0.3.1
 
 - Uses Callio Android and iOS SDKs 0.3.1: messages to someone who is offline are delivered when they're back

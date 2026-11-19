@@ -3,12 +3,12 @@
 # and CallKit / PushKit). InCallSDK is not on the CocoaPods trunk, so the host app's ios/Podfile says where it
 # comes from, inside `target 'Runner' do`:
 #
-#   pod 'InCallSDK', :git => 'https://github.com/iamakkshay/callio-sdk.git', :tag => '0.3.2'   # released SDK
+#   pod 'InCallSDK', :git => 'https://github.com/iamakkshay/callio-sdk.git', :tag => '0.3.3'   # released SDK
 #   pod 'InCallSDK', :path => '<path to this repo>/sdk/ios'                                     # in-repo sources
 #
 Pod::Spec.new do |s|
   s.name             = 'incall_flutter'
-  s.version          = '0.3.2'
+  s.version          = '0.3.3'
   s.summary          = 'Callio in-app calling, chat and location for Flutter (iOS side).'
   s.description      = 'Flutter bridge to the native Callio iOS SDK: calls over SIP and WebRTC with CallKit, chat and location.'
   s.homepage         = 'https://github.com/iamakkshay/callio-sdk'

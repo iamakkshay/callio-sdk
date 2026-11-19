@@ -3,13 +3,15 @@
 #import <React/RCTEventEmitter.h>
 
 @interface RCT_EXTERN_MODULE(CallioInCall, RCTEventEmitter)
-RCT_EXTERN_METHOD(start:(NSString *)baseUrl forceRelay:(BOOL)forceRelay allowInsecureTransport:(BOOL)allowInsecureTransport resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(start:(NSString *)baseUrl forceRelay:(BOOL)forceRelay allowInsecureTransport:(BOOL)allowInsecureTransport stayConnectedInBackground:(BOOL)stayConnectedInBackground resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(stop:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(provideToken:(NSString *)requestId token:(NSString *)token)
 RCT_EXTERN_METHOD(dial:(NSString *)sipUser resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(answer:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(decline:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(hangup:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(canShowCallsFullScreen:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(openCallsFullScreenSettings:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(addToCall:(NSString *)sipUser displayName:(NSString *)displayName resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(joinConference:(NSString *)room fromSip:(NSString *)fromSip resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(setMuted:(BOOL)muted resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject)

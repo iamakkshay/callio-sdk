@@ -56,10 +56,10 @@ final class CallioInCall: RCTEventEmitter, InCallClientDelegate {
         if let token, !token.isEmpty { settleToken(requestId, .success(token)) } else { settleToken(requestId, .failure(InCallError.tokenExpired)) }
     }
 
-    @objc func start(_ baseUrl: String, forceRelay: Bool, allowInsecureTransport: Bool, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
+    @objc func start(_ baseUrl: String, forceRelay: Bool, allowInsecureTransport: Bool, stayConnectedInBackground: Bool, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
         run(reject, "start") {
             guard let url = URL(string: baseUrl) else { throw InCallError.network("invalid baseUrl") }
-            let config = InCallConfig(baseURL: url, forceRelay: forceRelay,
+            let config = InCallConfig(baseURL: url, forceRelay: forceRelay, disconnectInBackground: !stayConnectedInBackground,
                                       allowInsecureTransport: allowInsecureTransport) { try await self.tokenFromJS() }
             let c = InCallClient(config: config); c.delegate = self; self.client = c
             try await c.start()
@@ -81,6 +81,9 @@ final class CallioInCall: RCTEventEmitter, InCallClientDelegate {
     @objc func decline(_ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
         run(reject, "decline") { await self.client?.currentCall?.decline(); resolve(nil) }
     }
+    /// iOS shows incoming calls with CallKit, which needs no extra permission.
+    @objc func canShowCallsFullScreen(_ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) { resolve(true) }
+    @objc func openCallsFullScreenSettings(_ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) { resolve(nil) }
     @objc func hangup(_ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
         run(reject, "hangup") { await self.client?.currentCall?.hangup(); resolve(nil) }
     }

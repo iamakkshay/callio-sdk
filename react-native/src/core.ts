@@ -33,13 +33,15 @@ export type Events = {
 
 // What the platform module (ios/CallioInCall.swift, android/CallioInCallModule.kt) exposes.
 export interface NativeInCall {
-  start(baseUrl: string, forceRelay: boolean, allowInsecureTransport: boolean): Promise<void>;
+  start(baseUrl: string, forceRelay: boolean, allowInsecureTransport: boolean, stayConnectedInBackground: boolean): Promise<void>;
   stop(): Promise<void>;
   provideToken(requestId: string, token: string | null): void;
   dial(sipUser: string): Promise<string>;
   answer(): Promise<void>;
   decline(): Promise<void>;
   hangup(): Promise<void>;
+  canShowCallsFullScreen(): Promise<boolean>;
+  openCallsFullScreenSettings(): Promise<void>;
   addToCall(sipUser: string, displayName: string): Promise<void>;
   joinConference(room: string, fromSip: string): Promise<string>;
   setMuted(muted: boolean): Promise<void>;
@@ -99,13 +101,17 @@ export class InCallClient {
    * `allowInsecureTransport` is for DEVELOPMENT only: it allows an `http://` baseUrl and `ws://` signalling (a local
    * stack or lab server). Without it the SDK requires `https://` and `wss://`. Never set it in a release build.
    */
-  async start(opts: { baseUrl: string; tokenProvider: () => Promise<string>; forceRelay?: boolean; allowInsecureTransport?: boolean }) {
+  /**
+   * Connect. `stayConnectedInBackground: true` keeps the connection while the app is in the background, so calls ring
+   * and messages arrive without push notifications (more battery). Leave it off when push (APNs/FCM) is set up.
+   */
+  async start(opts: { baseUrl: string; tokenProvider: () => Promise<string>; forceRelay?: boolean; allowInsecureTransport?: boolean; stayConnectedInBackground?: boolean }) {
     const insecure = !!opts.allowInsecureTransport;
     if (/^http:\/\/./i.test(opts.baseUrl)) {
       if (!insecure) throw new Error('baseUrl must use https:// (http:// is allowed only with allowInsecureTransport: true, for development)');
     } else if (!/^https:\/\/./i.test(opts.baseUrl)) throw new Error('baseUrl must be an https:// URL');
     this.tokenProvider = opts.tokenProvider;
-    await this.n.start(opts.baseUrl, !!opts.forceRelay, insecure);
+    await this.n.start(opts.baseUrl, !!opts.forceRelay, insecure, !!opts.stayConnectedInBackground);
   }
   stop() { return this.n.stop(); }
 
@@ -126,6 +132,10 @@ export class InCallClient {
    * you're talking to follows you in. To hand the call over (a warm transfer), hang up once they're talking.
    */
   addToCall(sipUser: string, displayName = '') { return this.n.addToCall(sipUser, displayName); }
+  /** Android 14+: whether an incoming call may take over the lock screen (the user allows it once). Always true on iOS. */
+  canShowCallsFullScreen() { return this.n.canShowCallsFullScreen(); }
+  /** Opens the system setting that allows full-screen incoming calls for this app. */
+  openCallsFullScreenSettings() { return this.n.openCallsFullScreenSettings(); }
   /** Accept a conferenceInvite; ends the current call first if there is one. */
   async joinConference(room: string, fromSip: string): Promise<Call> { return new Call(this.n, await this.n.joinConference(room, fromSip), room); }
   setMuted(muted: boolean) { return this.n.setMuted(muted); }

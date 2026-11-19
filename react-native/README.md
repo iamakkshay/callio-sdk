@@ -22,7 +22,7 @@ inside your app target and before `use_native_modules!`, so CocoaPods never look
 
 ```ruby
 target 'MyApp' do
-  pod 'InCallSDK', :git => 'https://github.com/iamakkshay/callio-sdk.git', :tag => '0.3.2'
+  pod 'InCallSDK', :git => 'https://github.com/iamakkshay/callio-sdk.git', :tag => '0.3.3'
   # or this repository's sources: pod 'InCallSDK', :path => '<path to ngx-p2p>/sdk/ios'
   config = use_native_modules!
   # ...

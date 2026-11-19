@@ -4,6 +4,17 @@ All SDKs (iOS, Android, Flutter, web engine) share one version, kept in `sdk/VER
 [semantic versioning](https://semver.org): a **major** bump breaks apps, a **minor** adds features, a **patch** fixes.
 See `docs/SDK_VERSIONING.md` for the support policy.
 
+## 0.3.3
+
+Incoming calls ring like a phone call, and the call screen is easier to use.
+
+- Android: an incoming call plays the phone's ringtone and vibrates (following silent / vibrate mode) and stops on
+  answer, decline or when the caller gives up.
+- React Native: calls use Android's call screen (Telecom), so an incoming call rings with Answer / Decline even when
+  the app is in the background. `start({ stayConnectedInBackground: true })` keeps the connection so calls and
+  messages arrive without push. `canShowCallsFullScreen()` / `openCallsFullScreenSettings()` for Android 14+'s
+  lock-screen permission.
+
 ## 0.3.2
 
 The npm packages are private, and companies install them with an SDK install token. The native SDKs are unchanged

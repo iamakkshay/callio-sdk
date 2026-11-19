@@ -50,15 +50,35 @@ class CallioInCallModule(private val ctx: ReactApplicationContext) : ReactContex
         pendingTokens.remove(requestId)?.complete(token?.takeIf { it.isNotEmpty() })
     }
 
-    @ReactMethod fun start(baseUrl: String, forceRelay: Boolean, allowInsecureTransport: Boolean, promise: Promise) = run(promise, "start") {
+    @ReactMethod fun start(baseUrl: String, forceRelay: Boolean, allowInsecureTransport: Boolean, stayConnectedInBackground: Boolean, promise: Promise) = run(promise, "start") {
         val c = InCallClient(ctx.applicationContext,
-            InCallConfig(baseUrl, forceRelay, allowInsecureTransport = allowInsecureTransport) { tokenFromJS() })
+            InCallConfig(baseUrl, forceRelay, disconnectInBackground = !stayConnectedInBackground,
+                allowInsecureTransport = allowInsecureTransport) { tokenFromJS() })
         c.addListener(this)
         client = c
+        // The phone's own call experience: an incoming call rings (ringtone, vibration) with a full-screen
+        // Answer / Decline screen even when the app is in the background or the phone is locked.
+        runCatching { com.ngx.incall.telecom.InCallTelecom.install(ctx.applicationContext, c) }
         c.start()
         null
     }
     @ReactMethod fun stop(promise: Promise) = run(promise, "stop") { client?.stop(); null }
+    /** Android 14+: may an incoming call take over the lock screen? The user allows it once in Settings. */
+    @ReactMethod fun canShowCallsFullScreen(promise: Promise) {
+        val ok = if (android.os.Build.VERSION.SDK_INT >= 34)
+            ctx.getSystemService(android.app.NotificationManager::class.java).canUseFullScreenIntent() else true
+        promise.resolve(ok)
+    }
+    /** Opens the system page where the user allows full-screen incoming calls for this app (Android 14+). */
+    @ReactMethod fun openCallsFullScreenSettings(promise: Promise) {
+        runCatching {
+            val i = if (android.os.Build.VERSION.SDK_INT >= 34)
+                android.content.Intent(android.provider.Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, android.net.Uri.parse("package:" + ctx.packageName))
+            else android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:" + ctx.packageName))
+            ctx.startActivity(i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
+        promise.resolve(null)
+    }
     @ReactMethod fun dial(sipUser: String, promise: Promise) = run(promise, "dial") { requireClient().dial(contact(sipUser)).id }
     @ReactMethod fun answer(promise: Promise) = run(promise, "answer") { client?.currentCall?.answer(); null }
     @ReactMethod fun decline(promise: Promise) = run(promise, "decline") { client?.currentCall?.decline(); null }

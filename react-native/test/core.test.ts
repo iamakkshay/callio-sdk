@@ -69,6 +69,7 @@ try { await c.start({ baseUrl: 'http://10.0.2.2:8080', tokenProvider: async () =
 check(insecureThrew, 'an http:// baseUrl is refused without allowInsecureTransport');
 await c.start({ baseUrl: 'http://10.0.2.2:8080', tokenProvider: async () => 't', allowInsecureTransport: true });
 check(calls.some(([n, a]) => n === 'start' && a[0] === 'http://10.0.2.2:8080' && a[2] === true), 'allowInsecureTransport is passed to the native SDK');
+check(calls.some(([n, a]) => n === 'start' && a[0] === 'https://api.example.sa' && a[3] === false), 'by default the SDK disconnects in the background (push wakes it)');
 await c.sendLocation('1002', { lat: 24.7, lng: 46.7 });
 check(calls.some(([n, a]) => n === 'sendLocation' && a[3] === 'Shared location'), 'a location without a label gets the default');
 
