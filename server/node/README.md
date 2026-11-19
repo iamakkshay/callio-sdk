@@ -36,9 +36,14 @@ secret store.
 
 ```ts
 
-> **Private package.** Installing it needs an npm account that has been given access. Sign in with `npm login`,
-> or put the read-only token you were given in your project's `.npmrc`:
-> `//registry.npmjs.org/:_authToken=${NPM_TOKEN}` (set `NPM_TOKEN` in your environment or CI; don't commit the token).
+> **Private package.** Install it with your organisation's SDK install token (console → Security & data → SDK install
+> tokens). Add two lines to your app's `.npmrc`, where `<platform>` is your Callio address, and set `CALLIO_SDK_TOKEN`
+> in your environment or build server (keep it secret; don't commit it):
+>
+> ```ini
+> @apurohit2:registry=https://<platform>/npm/
+> //<platform>/npm/:_authToken=${CALLIO_SDK_TOKEN}
+> ```
 import { Callio } from '@apurohit2/callio-server';
 
 const callio = new Callio({

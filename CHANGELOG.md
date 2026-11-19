@@ -4,10 +4,16 @@ All SDKs (iOS, Android, Flutter, web engine) share one version, kept in `sdk/VER
 [semantic versioning](https://semver.org): a **major** bump breaks apps, a **minor** adds features, a **patch** fixes.
 See `docs/SDK_VERSIONING.md` for the support policy.
 
-## React Native 0.3.2
+## 0.3.2
 
-Documentation only: the README covers messages to people who are offline, 3-way calls and handing a call over, and
-lists every event. Uses the native SDKs 0.3.1.
+The npm packages are private, and companies install them with an SDK install token. The native SDKs are unchanged
+from 0.3.1.
+
+- npm: the packages are `@apurohit2/callio-react-native`, `@apurohit2/callio-web` and `@apurohit2/callio-server`,
+  all private. A company installs them through the platform with an SDK install token from its console; no npm
+  account is needed. The public `@clarigoinfotech/*` packages were removed.
+- React Native: the README covers messages to people who are offline, 3-way calls and handing a call over, and
+  lists every event.
 
 ## 0.3.1
 

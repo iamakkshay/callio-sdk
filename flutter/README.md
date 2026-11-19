@@ -42,7 +42,7 @@ dependencies:
   #   git:
   #     url: https://github.com/iamakkshay/callio-sdk.git
   #     path: flutter
-  #     ref: 0.3.1
+  #     ref: 0.3.2
 ```
 
 Needs Flutter 3.27 or newer, Android 7 (API 24) or newer, iOS 15 or newer.
@@ -83,7 +83,7 @@ platform :ios, '15.0'
 
 target 'Runner' do
   use_frameworks!
-  pod 'InCallSDK', :git => 'https://github.com/iamakkshay/callio-sdk.git', :tag => '0.3.1'
+  pod 'InCallSDK', :git => 'https://github.com/iamakkshay/callio-sdk.git', :tag => '0.3.2'
   # or this repository's sources: pod 'InCallSDK', :path => '<path to ngx-p2p>/sdk/ios'
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 end
