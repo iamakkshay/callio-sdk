@@ -90,15 +90,29 @@ actor PlatformAPI {
         _ = try await postJSON("/api/messages", body: ["to": toSip, "body": body])
     }
 
+    /// Hold any chat body (JSON text) for someone who isn't connected.
+    func queueMessage(toSip: String, json: String) async throws {
+        let body = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) ?? [:]
+        _ = try await postJSON("/api/messages", body: ["to": toSip, "body": body])
+    }
+
+    /// FR-CHAT-04: store a photo or file for a chat; returns the reference to send.
+    func uploadAttachment(name: String, type: String, data: Data) async throws -> Attachment {
+        struct Wrap: Decodable { let attachment: Attachment }
+        let d = try await postJSON("/api/attachments", body: ["name": name, "type": type, "dataBase64": data.base64EncodedString()])
+        return try JSONDecoder().decode(Wrap.self, from: d).attachment
+    }
+
     /// Messages held for this user while they weren't connected, oldest first.
     func pendingMessages() async throws -> [PendingMessage] {
         struct Loc: Decodable { let lat: Double; let lng: Double; let label: String? }
-        struct Body: Decodable { let t: String?; let key: String?; let text: String?; let loc: Loc? }
+        struct Body: Decodable { let t: String?; let key: String?; let text: String?; let loc: Loc?; let attachment: Attachment? }
         struct Row: Decodable { let id: Int64; let fromSip: String?; let body: Body? }
         struct Wrap: Decodable { let messages: [Row] }
         return try await get("/api/messages/pending", as: Wrap.self).messages.map { r in
             let loc = r.body?.loc.map { SharedLocation(lat: $0.lat, lng: $0.lng, label: $0.label ?? "Shared location") }
-            return PendingMessage(id: r.id, fromSip: r.fromSip, kind: r.body?.t ?? "", key: r.body?.key, text: r.body?.text, location: loc)
+            let att = r.body?.attachment.flatMap { $0.url.hasPrefix("/api/attachments/") ? $0 : nil }
+            return PendingMessage(id: r.id, fromSip: r.fromSip, kind: r.body?.t ?? "", key: r.body?.key, text: r.body?.text, location: loc, attachment: att)
         }
     }
 
@@ -166,4 +180,5 @@ struct PendingMessage: Sendable {
     let key: String?
     let text: String?
     let location: SharedLocation?
+    let attachment: Attachment?
 }

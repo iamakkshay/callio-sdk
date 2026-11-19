@@ -107,6 +107,15 @@ class CallioInCallModule(private val ctx: ReactApplicationContext) : ReactContex
         if (m.status == MessageStatus.QUEUED) onMessageStatusChanged(m)
         return m.id
     }
+    /** A photo or file (base64): uploaded, then sent like a message. Resolves { id, attachment }. */
+    @ReactMethod fun sendFile(to: String, base64: String, name: String, type: String, promise: Promise) = run(promise, "sendFile") {
+        val c = requireClient()
+        val bytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT)
+        val a = c.uploadAttachment(name, type, bytes)
+        val m = c.thread(contact(to)).sendAttachment(a)
+        if (m.status == MessageStatus.QUEUED) onMessageStatusChanged(m)
+        Arguments.createMap().apply { putString("id", m.id); putMap("attachment", attachmentMap(a)) }
+    }
     @ReactMethod fun setTyping(to: String, typing: Boolean, promise: Promise) = run(promise, "setTyping") { client?.thread(contact(to))?.setTyping(typing); null }
     @ReactMethod fun callHistory(limit: Double, promise: Promise) = run(promise, "callHistory") {
         Arguments.createArray().apply {
@@ -150,7 +159,11 @@ class CallioInCallModule(private val ctx: ReactApplicationContext) : ReactContex
             putString("id", message.id); putString("from", message.from.name.lowercase()); putString("text", message.text)
             putString("status", message.status.name.lowercase())
             message.location?.let { l -> putMap("location", Arguments.createMap().apply { putDouble("lat", l.lat); putDouble("lng", l.lng); putString("label", l.label) }) }
+            message.attachment?.let { a -> putMap("attachment", attachmentMap(a)) }
         })
+    }
+    private fun attachmentMap(a: Attachment) = Arguments.createMap().apply {
+        putString("id", a.id); putString("name", a.name); putString("type", a.type); putDouble("size", a.size.toDouble()); putString("url", a.url)
     }
     override fun onMessageStatusChanged(message: Message) = event("messageStatus") {
         putString("messageId", message.id); putString("status", message.status.name.lowercase())

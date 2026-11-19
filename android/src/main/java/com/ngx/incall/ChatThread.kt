@@ -36,10 +36,25 @@ class ChatThread internal constructor(
         return sent.also { _messages.add(it) }
     }
 
+    /** Send a photo or file already uploaded with [InCallClient.uploadAttachment]. Held for the peer if they're offline. */
+    suspend fun sendAttachment(attachment: Attachment): Message {
+        val id = "me:" + UUID.randomUUID().toString().substring(0, 10)
+        val body = JSONObject().put("key", id).put("t", "file").put("attachment", attachmentJson(attachment))
+        val draft = Message(id, MessageSender.ME, attachment = attachment, status = MessageStatus.SENDING)
+        val sent = try {
+            transport.sendSignal(peer.sipUser, body.toString()); draft
+        } catch (e: InCallException.Network) {
+            val q = queue
+            if (q == null || !peerUnreachable(e)) throw e
+            q(body); draft.copy(status = MessageStatus.QUEUED)
+        }
+        return sent.also { _messages.add(it) }
+    }
+
     suspend fun setTyping(typing: Boolean) = transport.setTyping(typing, peer.sipUser)
 
-    internal fun appendIncoming(id: String, text: String?, location: SharedLocation?) {
-        _messages.add(Message(id, MessageSender.PEER, text, location, MessageStatus.DELIVERED))
+    internal fun appendIncoming(id: String, text: String?, location: SharedLocation?, attachment: Attachment? = null) {
+        _messages.add(Message(id, MessageSender.PEER, text, location, MessageStatus.DELIVERED, attachment))
     }
 
     internal fun updateStatus(messageId: String, status: MessageStatus) {
@@ -58,3 +73,14 @@ internal fun wireBody(key: String, text: String?, location: SharedLocation?): JS
     return if (location != null) b.put("t", "loc").put("loc", JSONObject().put("lat", location.lat).put("lng", location.lng).put("label", location.label))
     else b.put("t", "text").put("text", text ?: "")
 }
+
+/** The attachment in a chat message body ({t:"file", attachment:{id,name,type,size,url}}), or null if malformed. */
+internal fun parseAttachment(o: JSONObject?): Attachment? {
+    if (o == null) return null
+    val id = o.optString("id"); val url = o.optString("url")
+    if (id.isEmpty() || !url.startsWith("/api/attachments/")) return null   // only the platform's own files
+    return Attachment(id, o.optString("name", "file"), o.optString("type", "application/octet-stream"), o.optLong("size"), url)
+}
+
+internal fun attachmentJson(a: Attachment): JSONObject =
+    JSONObject().put("id", a.id).put("name", a.name).put("type", a.type).put("size", a.size).put("url", a.url)

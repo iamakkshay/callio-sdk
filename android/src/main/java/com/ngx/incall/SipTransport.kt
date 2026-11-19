@@ -33,6 +33,8 @@ internal interface SipTransport {
 
     suspend fun sendMessage(sipUser: String, text: String?, location: SharedLocation?): String
     suspend fun setTyping(typing: Boolean, sipUser: String)
+    /** Drop the signalling connection (the network changed); the client reconnects. */
+    fun dropConnection() {}
     /** A control message (JSON over SIP MESSAGE), such as a 3-way call invitation. */
     suspend fun sendSignal(sipUser: String, json: String) {}
 }
@@ -45,6 +47,8 @@ internal interface SipTransportEvents {
     fun onQualityUpdated(quality: CallQuality, callId: String)
     fun onMessage(sipUser: String, text: String?, location: SharedLocation?, messageId: String)
     fun onMessageStatusChanged(messageId: String, status: MessageStatus)
+    /** A photo or file arrived. */
+    fun onAttachment(sipUser: String, attachment: Attachment, messageId: String) {}
     fun onFailure(error: InCallException)
     /** An invitation into a 3-way call (room = the conference to dial); [move] = follow the current call there. */
     fun onConferenceInvite(fromSip: String, room: String, move: Boolean, with: List<String>) {}

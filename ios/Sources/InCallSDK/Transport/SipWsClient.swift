@@ -18,12 +18,20 @@ final class SipWsClient: @unchecked Sendable {
 
     private let cfg: Config
     private var task: URLSessionWebSocketTask?
+    private var closing = false
+    private var refreshTask: Task<Void, Never>?
+    private var pingTask: Task<Void, Never>?
+    /// The connection dropped (not closed by us): the transport reconnects.
+    var onDisconnected: (() -> Void)?
     private let lock = NSLock()
     private var cseq = 0
     private var pending: [Int: CheckedContinuation<SipMessage, Error>] = [:]
     private let callId = randToken() + "@incall.invalid"
     private let fromTag = randToken()
-    private let contactHost = randToken() + ".invalid"
+    // One contact address for the life of the app: a reconnect re-registers the same address, so the server replaces
+    // the old (dead) connection instead of keeping it next to the new one and trying both.
+    private let contactHost = SipWsClient.stableContactHost
+    private static let stableContactHost = randToken() + ".invalid"
     private var incomingInvite: SipMessage?   // the last inbound INVITE, to answer/decline
 
     /// Established INVITE dialog, captured from the 2xx (caller) or the inbound INVITE (callee), so we can
@@ -69,9 +77,23 @@ final class SipWsClient: @unchecked Sendable {
         task = t
         t.resume()
         Task { await receiveLoop(t) }
+        // A ping every 20 s: a connection that died silently (network switch, NAT timeout) fails within seconds.
+        pingTask = Task { [weak self, weak t] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 20_000_000_000)
+                guard let t, let self, !self.closing else { return }
+                t.sendPing { err in if err != nil { t.cancel(with: .abnormalClosure, reason: nil) } }
+            }
+        }
     }
 
-    func close() { task?.cancel(with: .goingAway, reason: nil); task = nil; dialog = nil; incomingInvite = nil }
+    func close() {
+        closing = true; refreshTask?.cancel(); pingTask?.cancel()
+        task?.cancel(with: .goingAway, reason: nil); task = nil; dialog = nil; incomingInvite = nil
+    }
+
+    /// Drop the connection now (the network changed): reported through `onDisconnected` like any other drop.
+    func drop() { task?.cancel(with: .abnormalClosure, reason: nil) }
 
     // MARK: - REGISTER (with digest), FR-SDK-04 / fix #4
 
@@ -92,9 +114,36 @@ final class SipWsClient: @unchecked Sendable {
             resp = try await send(auth: auth)
         }
         guard resp.statusCode == 200 else { throw InCallError.network("REGISTER failed (\(resp.statusCode ?? 0))") }
+        // The server forgets a registration when it expires: renew it well before then. A renewal that fails means
+        // the connection is gone, so drop it and let the transport reconnect.
+        if expires > 0, refreshTask == nil {
+            refreshTask = Task { [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: UInt64(expires) * 750_000_000)
+                    guard let self, !self.closing, !Task.isCancelled else { return }
+                    do { try await self.register(expires: expires) } catch { self.drop(); return }
+                }
+            }
+        }
     }
 
     func unregister() async { _ = try? await register(expires: 0) }
+
+    /// After a drop: remove every registration of this user (the dead connection's too), before registering again.
+    func clearRegistrations() async {
+        let aor = "sip:\(cfg.sipUser)@\(cfg.realm)"
+        func send(auth: String?) async throws -> SipMessage {
+            let n = nextCseq()
+            var headers = baseHeaders(method: "REGISTER", to: aor, from: aor, cseqNum: n)
+            headers.append(("Contact", "*")); headers.append(("Expires", "0"))
+            if let auth { headers.append(("Authorization", auth)) }
+            return try await request(cseqNum: n, method: "REGISTER", requestURI: "sip:\(cfg.realm)", headers: headers)
+        }
+        if let r = try? await send(auth: nil), r.statusCode == 401, let ch = r.header("WWW-Authenticate").flatMap(DigestAuth.parseChallenge) {
+            _ = try? await send(auth: DigestAuth.authorization(username: cfg.authUser, password: cfg.password,
+                                                               method: "REGISTER", uri: "sip:\(cfg.realm)", challenge: ch))
+        }
+    }
 
     // MARK: - MESSAGE (chat), FR-CHAT-01
 
@@ -281,7 +330,11 @@ final class SipWsClient: @unchecked Sendable {
     private func receiveLoop(_ t: URLSessionWebSocketTask) async {
         while true {
             let msg: URLSessionWebSocketTask.Message
-            do { msg = try await t.receive() } catch { failAllPending(); return }
+            do { msg = try await t.receive() } catch {
+                failAllPending()
+                if t === task, !closing { task = nil; refreshTask?.cancel(); pingTask?.cancel(); onDisconnected?() }
+                return
+            }
             if case let .string(text) = msg { handle(SipMessage.parse(text)) }
         }
     }
@@ -408,6 +461,11 @@ final class SipWsClient: @unchecked Sendable {
                          headers: [(String, String)], body: String = "") async throws -> SipMessage {
         guard let t = task else { throw InCallError.notRegistered }
         let raw = SipMessage.buildRequest(method: method, requestURI: requestURI, headers: headers, body: body)
+        // No answer in 15 s: the connection is dead even if the socket hasn't noticed yet.
+        // A call may ring much longer (the server ends an unanswered one after about two minutes), so INVITE waits up to three.
+        DispatchQueue.global().asyncAfter(deadline: .now() + (method == "INVITE" ? 180 : 15)) { [weak self] in
+            self?.takePending(cseqNum)?.resume(throwing: InCallError.network("\(method) timed out"))
+        }
         return try await withCheckedThrowingContinuation { cont in
             lock.lock(); pending[cseqNum] = cont; lock.unlock()
             t.send(.string(raw)) { [weak self] err in

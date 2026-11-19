@@ -4,6 +4,22 @@ All SDKs (iOS, Android, Flutter, web engine) share one version, kept in `sdk/VER
 [semantic versioning](https://semver.org): a **major** bump breaks apps, a **minor** adds features, a **patch** fixes.
 See `docs/SDK_VERSIONING.md` for the support policy.
 
+## 0.3.4
+
+Phones stay reachable: messages and calls keep arriving minutes after the app opens and after a network change.
+Photos in chat.
+
+- Android, iOS: the SDK renews its sign-in with the call server every 90 seconds. Before, it signed in for two
+  minutes and never renewed, so after that the phone couldn't receive calls or messages ("480").
+- Android, iOS: a heartbeat every 20 seconds notices a dead connection, and the SDK reconnects by itself (1, 2, 4 … 30 s
+  apart), at once when the phone switches network (Wi-Fi ↔ mobile data), clearing the dead connection's
+  registration so nothing is sent to it.
+- Android, iOS: a server request that gets no answer fails after 15 seconds instead of waiting forever (a ringing
+  call may wait up to three minutes).
+- Android, iOS: photos and files in chat: `uploadAttachment` then `ChatThread.sendAttachment`; incoming ones arrive as
+  messages with `attachment`. Held for the person if they're offline. Only the platform's own files are accepted.
+- React Native: `sendFile(to, { base64, name, type })` and `message.attachment`.
+
 ## 0.3.3
 
 Incoming calls ring like a phone call, and the call screen is easier to use.

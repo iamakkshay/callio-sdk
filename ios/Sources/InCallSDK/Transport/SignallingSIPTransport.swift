@@ -22,6 +22,7 @@ final class SignallingSIPTransport: SIPTransport {
     private func onMain(_ block: @escaping () -> Void) { Task { @MainActor in block() } }
 
     private var forceRelay = false
+    private var dropped = false
     private var answering = false
 
     func register(session: Session, forceRelay: Bool) async throws {
@@ -29,8 +30,15 @@ final class SignallingSIPTransport: SIPTransport {
         realm = session.realm
         self.session = session
         self.forceRelay = forceRelay
+        let reconnecting = client != nil || dropped
+        client?.close(); client = nil   // a reconnect: the old connection is finished
         let c = SipWsClient(config: .init(wss: session.wss, realm: session.realm, sipUser: session.sipUser,
                                           authUser: session.authUser, password: session.sipPassword))
+        c.onDisconnected = { [weak self, weak c] in
+            guard let self, let c, self.client === c else { return }
+            self.client = nil; self.dropped = true
+            self.onMain { self.events?.transport(registrationDidChange: .offline) }
+        }
         c.onChatMessage = { [weak self] fromSip, body in self?.handleInbound(fromSip: fromSip, body: body) }
         c.onIncomingInvite = { [weak self] fromSip, offer, callId in
             self?.pendingOffer = offer; self?.currentCallId = callId
@@ -57,9 +65,13 @@ final class SignallingSIPTransport: SIPTransport {
         }
         client = c
         try c.connect()
+        if reconnecting { await c.clearRegistrations() }   // the dead connection's registration would otherwise linger
+        dropped = false
         try await c.register()
         onMain { self.events?.transport(registrationDidChange: .registered) }
     }
+
+    func dropConnection() { client?.drop() }
 
     func unregister() async { await client?.unregister(); client?.close(); client = nil }
 
@@ -102,6 +114,10 @@ final class SignallingSIPTransport: SIPTransport {
             if let l = obj["loc"] as? [String: Any], let lat = l["lat"] as? Double, let lng = l["lng"] as? Double {
                 let loc = SharedLocation(lat: lat, lng: lng, label: l["label"] as? String ?? "Shared location")
                 onMain { self.events?.transport(messageFrom: fromSip, text: nil, location: loc, messageId: key) }
+            }
+        case "file":
+            if let a = Attachment(json: obj["attachment"] as? [String: Any]) {
+                onMain { self.events?.transport(attachmentFrom: fromSip, attachment: a, messageId: key) }
             }
         case "conf":   // an invitation into a 3-way call (same JSON the web client sends)
             if let room = obj["room"] as? String, room.range(of: "^cf-[0-9a-f]{12}$", options: .regularExpression) != nil {

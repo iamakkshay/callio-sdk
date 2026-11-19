@@ -92,6 +92,27 @@ public struct Message: Sendable, Equatable, Identifiable {
     public let text: String?
     public let location: SharedLocation?
     public var status: MessageStatus
+    /// A photo or file (FR-CHAT-04): uploaded with `InCallClient.uploadAttachment`, fetched from `Attachment.url`.
+    public var attachment: Attachment? = nil
+}
+
+/// A file in a chat: `url` is a platform path (/api/attachments/<id>) fetched with the user's token.
+public struct Attachment: Codable, Sendable, Equatable {
+    public let id: String
+    public let name: String
+    public let type: String
+    public let size: Int
+    public let url: String
+    public init(id: String, name: String, type: String, size: Int, url: String) {
+        self.id = id; self.name = name; self.type = type; self.size = size; self.url = url
+    }
+    /// From a chat message body; only the platform's own files are accepted.
+    init?(json o: [String: Any]?) {
+        guard let o, let id = o["id"] as? String, let url = o["url"] as? String, url.hasPrefix("/api/attachments/") else { return nil }
+        self.init(id: id, name: o["name"] as? String ?? "file", type: o["type"] as? String ?? "application/octet-stream",
+                  size: (o["size"] as? NSNumber)?.intValue ?? 0, url: url)
+    }
+    var json: [String: Any] { ["id": id, "name": name, "type": type, "size": size, "url": url] }
 }
 
 /// One row of per-user call history (FR-CALL-08), from GET /api/history.

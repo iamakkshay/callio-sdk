@@ -1,4 +1,5 @@
 import Foundation
+import Network
 #if os(iOS)
 import UIKit
 #endif
@@ -136,13 +137,51 @@ public final class InCallClient {
     private var lifecycleObservers: [NSObjectProtocol] = []
 
     /// In the background with no call, drop the socket (pushes ring the phone instead); reconnect in front.
+    // Staying reachable: reconnect after a drop, with growing gaps (1, 2, 4 … 30 s); and at once when the network changes.
+    private var offlineByChoice = false
+    private var reconnectTask: Task<Void, Never>?
+    func scheduleReconnect() {
+        guard reconnectTask == nil else { return }
+        reconnectTask = Task { @MainActor [weak self] in
+            var attempt = 0
+            while let self, self.wantsConnection, !self.offlineByChoice, self.registrationState != .registered {
+                try? await Task.sleep(nanoseconds: UInt64(min(30, 1 << min(attempt, 5))) * 1_000_000_000)
+                guard self.wantsConnection, !self.offlineByChoice else { break }
+                try? await self.start()
+                attempt += 1
+            }
+            self?.reconnectTask = nil
+        }
+    }
+    private var pathMonitor: NWPathMonitor?
+    private var lastInterfaces: [NWInterface.InterfaceType] = []
+    private func watchNetwork() {
+        guard pathMonitor == nil else { return }
+        let m = NWPathMonitor()
+        m.pathUpdateHandler = { [weak self] path in
+            let kinds = path.availableInterfaces.map(\.type)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let changed = !self.lastInterfaces.isEmpty && kinds.first != self.lastInterfaces.first
+                self.lastInterfaces = kinds
+                if changed, path.status == .satisfied, self.wantsConnection, !self.offlineByChoice {
+                    self.transport.dropConnection(); self.scheduleReconnect()
+                }
+            }
+        }
+        m.start(queue: DispatchQueue.global(qos: .utility))
+        pathMonitor = m
+    }
+
     func appDidEnterBackground() async {
         guard config.disconnectInBackground, wantsConnection, currentCall == nil else { return }
+        offlineByChoice = true
         stopPresenceUpdates()
         await transport.unregister()
         registrationState = .offline
     }
     func appWillEnterForeground() async {
+        offlineByChoice = false
         guard config.disconnectInBackground, wantsConnection, registrationState == .offline else { return }
         try? await start()
     }
@@ -163,6 +202,7 @@ public final class InCallClient {
     public func start() async throws {
         wantsConnection = true
         if lifecycleObservers.isEmpty { observeAppLifecycle() }
+        watchNetwork()
         registrationState = .connecting
         do {
             try TransportSecurity.check(config.baseURL.absoluteString, secure: "https", insecure: "http",
@@ -184,6 +224,7 @@ public final class InCallClient {
 
     public func stop() async {
         wantsConnection = false
+        reconnectTask?.cancel(); reconnectTask = nil
         stopPresenceUpdates()
         await transport.unregister()
         session = nil
@@ -206,9 +247,9 @@ public final class InCallClient {
     public func thread(with contact: Contact) -> ChatThread {
         if let t = threads[contact.sipUser] { return t }
         let api = self.api, to = contact.sipUser
-        let t = ChatThread(peer: contact, transport: transport) { key, text, location in
+        let t = ChatThread(peer: contact, transport: transport, queue: { key, text, location in
             try await api.queueMessage(toSip: to, key: key, text: text, location: location)
-        }
+        }, queueBody: { json in try await api.queueMessage(toSip: to, json: json) })
         threads[contact.sipUser] = t
         return t
     }
@@ -271,6 +312,7 @@ public final class InCallClient {
 
 extension InCallClient: SIPTransportEvents {
     func transport(registrationDidChange state: RegistrationState) {
+        if state == .offline, wantsConnection, !offlineByChoice { scheduleReconnect() }
         registrationState = state
         if state == .registered && features.chat { Task { await drainHeldMessages() } }   // on every (re)connect
     }
@@ -288,6 +330,7 @@ extension InCallClient: SIPTransportEvents {
             switch m.kind {
             case "text": transport(messageFrom: from, text: m.text ?? "", location: nil, messageId: key)
             case "loc": if let loc = m.location { transport(messageFrom: from, text: nil, location: loc, messageId: key) }
+            case "file": if let a = m.attachment { transport(attachmentFrom: from, attachment: a, messageId: key) }
             default: break
             }
             delivered.append(m.id)   // an unknown kind is still confirmed, so it isn't offered forever
@@ -332,6 +375,17 @@ extension InCallClient: SIPTransportEvents {
     func transport(qualityDidUpdate quality: CallQuality, callId: String) {
         currentCall?.apply(quality: quality)
         notify { $0.client(self, callQualityDidUpdate: quality) }
+    }
+
+    func transport(attachmentFrom sipUser: String, attachment: Attachment, messageId: String) {
+        let t = thread(with: contact(forSip: sipUser))
+        t.appendIncoming(id: messageId, text: nil, location: nil, attachment: attachment)
+        if let msg = t.messages.last { notify { $0.client(self, didReceiveMessage: msg, in: t) } }
+    }
+
+    /// Upload a photo or file for a chat (FR-CHAT-04); then send it with `ChatThread.sendAttachment`.
+    public func uploadAttachment(name: String, type: String, data: Data) async throws -> Attachment {
+        try await api.uploadAttachment(name: name, type: type, data: data)
     }
 
     func transport(messageFrom sipUser: String, text: String?, location: SharedLocation?, messageId: String) {

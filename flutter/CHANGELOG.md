@@ -1,3 +1,7 @@
+## 0.3.4
+
+- Uses Callio Android and iOS SDKs 0.3.4: stays reachable (sign-in renewed, reconnects after a drop or a network change).
+
 ## 0.3.3
 
 - Uses Callio Android and iOS SDKs 0.3.3: incoming calls ring with the phone's ringtone and vibration on Android.

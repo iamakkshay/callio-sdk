@@ -130,6 +130,17 @@ final class CallioInCall: RCTEventEmitter, InCallClientDelegate {
             resolve(self.announce(try await c.thread(with: self.contact(to)).sendLocation(SharedLocation(lat: lat, lng: lng, label: label))))
         }
     }
+    static func attachmentMap(_ a: Attachment) -> [String: Any] { ["id": a.id, "name": a.name, "type": a.type, "size": a.size, "url": a.url] }
+    /// A photo or file (base64): uploaded, then sent like a message. Resolves { id, attachment }.
+    @objc func sendFile(_ to: String, base64: String, name: String, type: String, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
+        run(reject, "sendFile") {
+            guard let c = self.client else { throw InCallError.notRegistered }
+            guard let data = Data(base64Encoded: base64, options: .ignoreUnknownCharacters) else { throw InCallError.network("bad file data") }
+            let a = try await c.uploadAttachment(name: name, type: type, data: data)
+            let m = try await c.thread(with: self.contact(to)).sendAttachment(a)
+            resolve(["id": self.announce(m), "attachment": Self.attachmentMap(a)])
+        }
+    }
     @objc func setTyping(_ to: String, typing: Bool, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
         run(reject, "setTyping") { await self.client?.thread(with: self.contact(to)).setTyping(typing); resolve(nil) }
     }
@@ -166,7 +177,8 @@ final class CallioInCall: RCTEventEmitter, InCallClientDelegate {
     func client(_ c: InCallClient, didReceiveMessage m: Message, in thread: ChatThread) {
         emit(["event": "message", "peerSip": thread.peer.sipUser,
               "message": ["id": m.id, "from": m.from.rawValue, "text": m.text as Any,
-                          "location": m.location.map { ["lat": $0.lat, "lng": $0.lng, "label": $0.label] } as Any, "status": m.status.rawValue]])
+                          "location": m.location.map { ["lat": $0.lat, "lng": $0.lng, "label": $0.label] } as Any, "status": m.status.rawValue,
+                          "attachment": m.attachment.map { Self.attachmentMap($0) } as Any]])
     }
     func client(_ c: InCallClient, messageStatusDidChange m: Message) { emit(["event": "messageStatus", "messageId": m.id, "status": m.status.rawValue]) }
     /// A message the platform is holding for someone offline: say so (messageStatus "queued"), then return its id.

@@ -11,7 +11,9 @@ export type CallState = 'initiating' | 'ringing' | 'connected' | 'onHold' | 'rec
 export type CallEndReason = 'ended' | 'declined' | 'missed' | 'no-answer' | 'busy' | 'unreachable';
 export type Contact = { name: string; sipUser: string; displayName: string; userType: UserType };
 export type SharedLocation = { lat: number; lng: number; label?: string };
-export type Message = { id: string; from: 'me' | 'peer'; text?: string | null; location?: SharedLocation | null; status: string };
+/** A photo or file in a chat. `url` is a platform path (/api/attachments/<id>): fetch it from your baseUrl with the user's token. */
+export type Attachment = { id: string; name: string; type: string; size: number; url: string };
+export type Message = { id: string; from: 'me' | 'peer'; text?: string | null; location?: SharedLocation | null; attachment?: Attachment | null; status: string };
 export type CallQuality = { rttMs?: number | null; jitterMs?: number | null; lossPct?: number | null; mos?: number | null };
 export type HistoryEntry = { callId: string; peer: string; peerDisplayName: string; direction: 'incoming' | 'outgoing'; outcome: string; durationSec: number; at: string };
 
@@ -49,6 +51,7 @@ export interface NativeInCall {
   sendDtmf(tone: string): Promise<void>;
   setAudioRoute(route: AudioRoute): Promise<void>;
   sendText(to: string, text: string): Promise<string>;
+  sendFile(to: string, base64: string, name: string, type: string): Promise<{ id: string; attachment: Attachment }>;
   sendLocation(to: string, lat: number, lng: number, label: string): Promise<string>;
   setTyping(to: string, typing: boolean): Promise<void>;
   callHistory(limit: number): Promise<HistoryEntry[]>;
@@ -152,6 +155,11 @@ export class InCallClient {
   }
 
   sendText(to: string, text: string) { return this.n.sendText(to, text); }
+  /** Send a photo or file (its bytes as base64). Held for the person if they're offline (messageStatus 'queued'). */
+  sendFile(to: string, file: { base64: string; name: string; type: string }) {
+    if (!file.base64 || !file.type) throw new Error('sendFile needs base64 and type');
+    return this.n.sendFile(to, file.base64, file.name || 'file', file.type);
+  }
   sendLocation(to: string, loc: SharedLocation) {
     if (!(Math.abs(loc.lat) <= 90 && Math.abs(loc.lng) <= 180)) throw new Error('invalid coordinates');
     return this.n.sendLocation(to, loc.lat, loc.lng, loc.label || 'Shared location');

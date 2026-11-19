@@ -73,6 +73,14 @@ internal class PlatformApi(
         return JSONObject(r).getString("dial")
     }
 
+    /** FR-CHAT-04: store a photo or file for a chat; returns the reference to send. */
+    suspend fun uploadAttachment(name: String, type: String, bytes: ByteArray): Attachment {
+        val body = JSONObject().put("name", name).put("type", type)
+            .put("dataBase64", android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP))
+        val a = JSONObject(post("/api/attachments", body)).getJSONObject("attachment")
+        return Attachment(a.getString("id"), a.optString("name", name), a.optString("type", type), a.optLong("size", bytes.size.toLong()), a.getString("url"))
+    }
+
     /** FR-CHAT-03: hold a message for someone who isn't connected; the platform delivers it (and wakes them). */
     suspend fun queueMessage(toSip: String, body: JSONObject) {
         post("/api/messages", JSONObject().put("to", toSip).put("body", body))

@@ -74,7 +74,12 @@ data class Message(
     val text: String? = null,
     val location: SharedLocation? = null,
     val status: MessageStatus = MessageStatus.SENDING,
+    /** A photo or file (FR-CHAT-04): uploaded with [InCallClient.uploadAttachment], fetched from [Attachment.url]. */
+    val attachment: Attachment? = null,
 )
+
+/** A file in a chat: [url] is a platform path (/api/attachments/<id>) fetched with the user's token. */
+data class Attachment(val id: String, val name: String, val type: String, val size: Long, val url: String)
 
 /** One row of per-user call history (FR-CALL-08), from GET /api/history. */
 data class HistoryEntry(

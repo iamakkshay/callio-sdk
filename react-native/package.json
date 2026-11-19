@@ -1,6 +1,6 @@
 {
   "name": "@apurohit2/callio-react-native",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Callio in-app calling, chat and location for React Native (wraps the native iOS and Android SDKs)",
   "type": "module",
   "main": "src/index.ts",

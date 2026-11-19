@@ -11,6 +11,7 @@ const mock = new Proxy({}, { get: (_t, name: string) => (...args: unknown[]) => 
   if (name === 'provideToken') tokens.push(args as [string, string | null]);
   if (name === 'dial') return Promise.resolve('call-1');
   if (name === 'joinConference') return Promise.resolve('call-conf');
+  if (name === 'sendFile') return Promise.resolve({ id: 'me:file', attachment: { id: 'a1', name: 'door.jpg', type: 'image/jpeg', size: 5, url: '/api/attachments/a1' } });
   return Promise.resolve(undefined);
 } }) as NativeInCall;
 let emit: (e: any) => void = () => {};
@@ -54,6 +55,8 @@ await c.addToCall('1003', 'Support team');
 check(calls.some(([n, a]) => n === 'addToCall' && a[0] === '1003' && a[1] === 'Support team'), 'addToCall passes who to bring in');
 const conf = await c.joinConference('cf-0123456789ab', '1002');
 check(conf.id === 'call-conf' && calls.some(([n, a]) => n === 'joinConference' && a[0] === 'cf-0123456789ab'), 'joinConference returns the 3-way call');
+const f = await c.sendFile('1002', { base64: 'aGVsbG8=', name: 'door.jpg', type: 'image/jpeg' });
+check(calls.some(([n, a]) => n === 'sendFile' && a[0] === '1002' && a[3] === 'image/jpeg') && f.id === 'me:file', 'sendFile passes the photo to the native SDK');
 const call = await c.dial('1002');
 check(call.id === 'call-1' && call.peerSipUser === '1002', 'dial returns a Call with the native id');
 await call.setMuted(true);

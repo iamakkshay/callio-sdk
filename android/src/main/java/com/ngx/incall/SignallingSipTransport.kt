@@ -15,6 +15,7 @@ internal class SignallingSipTransport : SipTransport {
     override var events: SipTransportEvents? = null
 
     private var client: SipWsClient? = null
+    @Volatile private var dropped = false
     private val main = Handler(Looper.getMainLooper())
     private fun onMain(block: () -> Unit) { main.post(block) }
     private fun needsMedia() =
@@ -22,16 +23,23 @@ internal class SignallingSipTransport : SipTransport {
 
     override suspend fun register(session: Session, forceRelay: Boolean) {
         onMain { events?.onRegistrationChanged(RegistrationState.CONNECTING) }
+        val reconnecting = client != null || dropped
+        client?.close(); client = null   // a reconnect: the old connection is finished
         val c = SipWsClient(SipWsClient.Config(session.wss, session.realm, session.sipUser, session.authUser, session.sipPassword))
+        c.onDisconnected = { if (client === c) { client = null; dropped = true; onMain { events?.onRegistrationChanged(RegistrationState.OFFLINE) } } }
         c.onChatMessage = { fromSip, body -> handleInbound(fromSip, body) }
         c.onIncomingInvite = { fromSip, _, callId -> onMain { events?.onIncomingCall(fromSip, callId) } }
         c.onBye = { callId -> onMain { events?.onCallStateChanged(CallState.Ended(CallEndReason.ENDED), callId) } }
         c.onCancel = { callId -> onMain { events?.onCallStateChanged(CallState.Ended(CallEndReason.MISSED), callId) } }
         client = c
         c.connect()
+        if (reconnecting) c.clearRegistrations()   // the dead connection's registration would otherwise linger
+        dropped = false
         c.register()
         onMain { events?.onRegistrationChanged(RegistrationState.REGISTERED) }
     }
+
+    override fun dropConnection() { client?.drop() }
 
     override suspend fun unregister() { client?.unregister(); client?.close(); client = null }
 
@@ -61,6 +69,7 @@ internal class SignallingSipTransport : SipTransport {
         val key = obj.optString("key", UUID.randomUUID().toString())
         when (obj.optString("t")) {
             "text" -> onMain { events?.onMessage(fromSip, obj.optString("text"), null, key) }
+            "file" -> parseAttachment(obj.optJSONObject("attachment"))?.let { a -> onMain { events?.onAttachment(fromSip, a, key) } }
             "loc" -> obj.optJSONObject("loc")?.let { l ->
                 val loc = SharedLocation(l.optDouble("lat"), l.optDouble("lng"), l.optString("label", "Shared location"))
                 onMain { events?.onMessage(fromSip, null, loc, key) }

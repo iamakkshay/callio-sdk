@@ -17,6 +17,7 @@ internal class WebRtcSignallingSipTransport(private val context: Context) : SipT
     override var events: SipTransportEvents? = null
 
     private var client: SipWsClient? = null
+    @Volatile private var dropped = false
     private var session: Session? = null
     private var forceRelay = false
     private var media: WebRtcMedia? = null
@@ -30,7 +31,10 @@ internal class WebRtcSignallingSipTransport(private val context: Context) : SipT
     override suspend fun register(session: Session, forceRelay: Boolean) {
         this.session = session; this.forceRelay = forceRelay
         onMain { events?.onRegistrationChanged(RegistrationState.CONNECTING) }
+        val reconnecting = client != null || dropped
+        client?.close(); client = null   // a reconnect: the old connection is finished
         val c = SipWsClient(SipWsClient.Config(session.wss, session.realm, session.sipUser, session.authUser, session.sipPassword))
+        c.onDisconnected = { if (client === c) { client = null; dropped = true; onMain { events?.onRegistrationChanged(RegistrationState.OFFLINE) } } }
         c.onChatMessage = { fromSip, body -> handleInbound(fromSip, body) }
         c.onIncomingInvite = { fromSip, offer, callId ->
             pendingOffer = offer; currentCallId = callId
@@ -42,9 +46,13 @@ internal class WebRtcSignallingSipTransport(private val context: Context) : SipT
         c.onRemoteHold = { held -> val id = currentCallId ?: ""; onMain { events?.onCallStateChanged(if (held) CallState.OnHold else CallState.Connected, id) } }
         client = c
         c.connect()
+        if (reconnecting) c.clearRegistrations()   // the dead connection's registration would otherwise linger
+        dropped = false
         c.register()
         onMain { events?.onRegistrationChanged(RegistrationState.REGISTERED) }
     }
+
+    override fun dropConnection() { client?.drop() }
 
     override suspend fun unregister() { media?.close(); media = null; client?.unregister(); client?.close(); client = null }
 
@@ -178,6 +186,7 @@ internal class WebRtcSignallingSipTransport(private val context: Context) : SipT
         val key = obj.optString("key", UUID.randomUUID().toString())
         when (obj.optString("t")) {
             "text" -> onMain { events?.onMessage(fromSip, obj.optString("text"), null, key) }
+            "file" -> parseAttachment(obj.optJSONObject("attachment"))?.let { a -> onMain { events?.onAttachment(fromSip, a, key) } }
             "loc" -> obj.optJSONObject("loc")?.let { l ->
                 val loc = SharedLocation(l.optDouble("lat"), l.optDouble("lng"), l.optString("label", "Shared location"))
                 onMain { events?.onMessage(fromSip, null, loc, key) }

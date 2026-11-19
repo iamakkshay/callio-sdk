@@ -102,13 +102,48 @@ class InCallClient internal constructor(
     private var startedActivities = 0
     private var lifecycleHooked = false
 
+    // ---- staying reachable: reconnect after a drop, with growing gaps (1, 2, 4 … 30 s) ----
+    @Volatile private var offlineByChoice = false
+    private var reconnectJob: kotlinx.coroutines.Job? = null
+    private fun scheduleReconnect() {
+        if (reconnectJob?.isActive == true) return
+        reconnectJob = scope.launch {
+            var attempt = 0
+            while (wantsConnection && !offlineByChoice && registrationState != RegistrationState.REGISTERED) {
+                kotlinx.coroutines.delay(minOf(30_000L, 1000L shl minOf(attempt, 5)))
+                if (!wantsConnection || offlineByChoice) break
+                runCatching { start() }
+                attempt++
+            }
+        }
+    }
+    private var networkHooked = false
+    private var lastNetwork: android.net.Network? = null
+    /** A new network (Wi-Fi ↔ mobile data): the old connection is bound to the network that went away. */
+    private fun hookNetwork() {
+        if (networkHooked || Build.VERSION.SDK_INT < 24) return
+        val cm = appContext.getSystemService(ConnectivityManager::class.java) ?: return
+        networkHooked = true
+        runCatching {
+            cm.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: android.net.Network) {
+                    val changed = lastNetwork != null && lastNetwork != network
+                    lastNetwork = network
+                    if (changed && wantsConnection && !offlineByChoice) scope.launch { transport.dropConnection(); scheduleReconnect() }
+                }
+            })
+        }
+    }
+
     internal suspend fun onAppBackground() {
         if (!config.disconnectInBackground || !wantsConnection || currentCall != null) return
+        offlineByChoice = true
         stopPresenceUpdates()
         transport.unregister()
         registrationState = RegistrationState.OFFLINE
     }
     internal suspend fun onAppForeground() {
+        offlineByChoice = false
         if (!config.disconnectInBackground || !wantsConnection || registrationState != RegistrationState.OFFLINE) return
         runCatching { start() }
     }
@@ -130,6 +165,7 @@ class InCallClient internal constructor(
     suspend fun start() {
         wantsConnection = true
         if (!lifecycleHooked) hookLifecycle()
+        hookNetwork()
         registrationState = RegistrationState.CONNECTING
         val s = api.fetchSession()
         try {
@@ -148,6 +184,7 @@ class InCallClient internal constructor(
 
     suspend fun stop() {
         wantsConnection = false
+        reconnectJob?.cancel()
         stopPresenceUpdates()
         transport.unregister()
         session = null
@@ -180,6 +217,7 @@ class InCallClient internal constructor(
                 val key = b.optString("key").ifEmpty { "held:${m.id}" }
                 when (b.optString("t")) {
                     "text" -> onMessage(from, b.optString("text"), null, key)
+                    "file" -> parseAttachment(b.optJSONObject("attachment"))?.let { a -> onAttachment(from, a, key) }
                     "loc" -> b.optJSONObject("loc")?.let { l ->
                         onMessage(from, null, SharedLocation(l.optDouble("lat"), l.optDouble("lng"), l.optString("label", "Shared location")), key)
                     }
@@ -235,6 +273,8 @@ class InCallClient internal constructor(
 
     override fun onRegistrationChanged(state: RegistrationState) {
         registrationState = state
+        // The connection dropped while the app wants to be reachable: reconnect (not when we went offline on purpose).
+        if (state == RegistrationState.OFFLINE && wantsConnection && !offlineByChoice) scheduleReconnect()
         if (state == RegistrationState.REGISTERED && features.chat) scope.launch { drainHeldMessages() }   // on every (re)connect
     }
 
@@ -279,6 +319,15 @@ class InCallClient internal constructor(
         currentCall?.quality = quality
         emit { it.onCallQualityUpdated(quality) }
     }
+
+    override fun onAttachment(sipUser: String, attachment: Attachment, messageId: String) {
+        val t = thread(contactForSip(sipUser))
+        t.appendIncoming(messageId, null, null, attachment)
+        t.messages.lastOrNull()?.let { msg -> emit { it.onMessage(msg, t) } }
+    }
+
+    /** Upload a photo or file for a chat (FR-CHAT-04); then send it with [ChatThread.sendAttachment]. */
+    suspend fun uploadAttachment(name: String, type: String, bytes: ByteArray): Attachment = api.uploadAttachment(name, type, bytes)
 
     override fun onMessage(sipUser: String, text: String?, location: SharedLocation?, messageId: String) {
         val t = thread(contactForSip(sipUser))

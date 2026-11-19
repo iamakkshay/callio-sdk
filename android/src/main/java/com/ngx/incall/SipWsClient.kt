@@ -26,7 +26,13 @@ import kotlin.coroutines.resumeWithException
 internal class SipWsClient(private val cfg: Config) {
     data class Config(val wss: String, val realm: String, val sipUser: String, val authUser: String, val password: String)
 
-    private val http = OkHttpClient()
+    // A WebSocket ping every 20 s: a connection that died silently (the phone switched network, a NAT forgot us)
+    // fails within seconds instead of looking alive while nothing arrives.
+    private val http = OkHttpClient.Builder().pingInterval(20, java.util.concurrent.TimeUnit.SECONDS).build()
+    @Volatile private var closing = false
+    private var refreshJob: kotlinx.coroutines.Job? = null
+    /** The connection dropped (not closed by us): the transport reconnects. */
+    var onDisconnected: (() -> Unit)? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var ws: WebSocket? = null
     private val lock = Any()
@@ -34,7 +40,9 @@ internal class SipWsClient(private val cfg: Config) {
     private val pending = HashMap<Int, CancellableContinuation<SipMessage>>()
     private val callId = randToken() + "@incall.invalid"
     private val fromTag = randToken()
-    private val contactHost = randToken() + ".invalid"
+    // One contact address for the life of the app: a reconnect re-registers the same address, so the server replaces
+    // the old (dead) connection instead of keeping it next to the new one and trying both.
+    private val contactHost = CONTACT_HOST
     @Volatile private var incomingInvite: SipMessage? = null   // the last inbound INVITE, to answer/decline
 
     /** Established INVITE dialog (from the 2xx as caller, or the inbound INVITE as callee) so we can ACK
@@ -65,12 +73,22 @@ internal class SipWsClient(private val cfg: Config) {
         val req = Request.Builder().url(cfg.wss).header("Sec-WebSocket-Protocol", "sip").build()
         ws = http.newWebSocket(req, object : WebSocketListener() {
             override fun onMessage(webSocket: WebSocket, text: String) { handle(SipMessage.parse(text)) }
-            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) { failAllPending() }
-            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) { failAllPending() }
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) { lost(webSocket) }
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) { lost(webSocket) }
         })
     }
 
-    fun close() { ws?.close(1000, null); ws = null; dialog = null; incomingInvite = null }
+    private fun lost(socket: WebSocket) {
+        failAllPending()
+        if (socket !== ws || closing) return
+        refreshJob?.cancel(); ws = null
+        onDisconnected?.invoke()
+    }
+
+    fun close() { closing = true; refreshJob?.cancel(); ws?.close(1000, null); ws = null; dialog = null; incomingInvite = null }
+
+    /** Drop the connection now (the network changed): reported through [onDisconnected] like any other drop. */
+    fun drop() { ws?.cancel() }
 
     // REGISTER (with digest), FR-SDK-04 / fix #4
     suspend fun register(expires: Int = 120) {
@@ -89,9 +107,36 @@ internal class SipWsClient(private val cfg: Config) {
             if (ch != null) resp = send(DigestAuth.authorization(cfg.authUser, cfg.password, "REGISTER", "sip:${cfg.realm}", ch))
         }
         if (resp.statusCode != 200) throw InCallException.Network("REGISTER failed (${resp.statusCode})")
+        // The server forgets a registration when it expires: renew it well before then. A renewal that fails means
+        // the connection is gone, so drop it and let the transport reconnect.
+        if (expires > 0 && (refreshJob == null || refreshJob?.isActive != true)) refreshJob = scope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(expires * 750L)
+                if (closing) break
+                try { register(expires) } catch (_: Exception) { if (!closing) drop(); break }
+            }
+        }
     }
 
     suspend fun unregister() { try { register(0) } catch (_: Exception) {} }
+
+    /** After a drop: remove every registration of this user (the dead connection's too), before registering again. */
+    suspend fun clearRegistrations() {
+        val aor = "sip:${cfg.sipUser}@${cfg.realm}"
+        suspend fun send(auth: String?): SipMessage {
+            val n = nextCseq()
+            val headers = baseHeaders("REGISTER", aor, aor, n).toMutableList()
+            headers.add("Contact" to "*"); headers.add("Expires" to "0")
+            if (auth != null) headers.add("Authorization" to auth)
+            return request(n, "REGISTER", "sip:${cfg.realm}", headers)
+        }
+        runCatching {
+            val r = send(null)
+            if (r.statusCode == 401) r.header("WWW-Authenticate")?.let { DigestAuth.parseChallenge(it) }?.let {
+                send(DigestAuth.authorization(cfg.authUser, cfg.password, "REGISTER", "sip:${cfg.realm}", it))
+            }
+        }
+    }
 
     // MESSAGE (chat), FR-CHAT-01
     suspend fun message(toSip: String, contentType: String, body: String): String {
@@ -377,10 +422,14 @@ internal class SipWsClient(private val cfg: Config) {
     ): SipMessage {
         val w = ws ?: throw InCallException.NotRegistered
         val raw = SipMessage.buildRequest(method, requestURI, headers, body)
-        return suspendCancellableCoroutine { cont ->
-            synchronized(lock) { pending[cseqNum] = cont }
-            if (!w.send(raw)) takePending(cseqNum)?.resumeWithException(InCallException.Network("send failed"))
-        }
+        // No answer in 15 s: the connection is dead even if the socket hasn't noticed yet. A call may ring much longer
+        // (the server ends an unanswered one after about two minutes), so INVITE waits up to three.
+        return kotlinx.coroutines.withTimeoutOrNull(if (method == "INVITE") 180_000L else 15_000L) {
+            suspendCancellableCoroutine { cont ->
+                synchronized(lock) { pending[cseqNum] = cont }
+                if (!w.send(raw)) takePending(cseqNum)?.resumeWithException(InCallException.Network("send failed"))
+            }
+        } ?: run { takePending(cseqNum); throw InCallException.Network("$method timed out") }
     }
 
     private fun baseHeaders(method: String, to: String, from: String, cseqNum: Int, cid: String = callId): List<Pair<String, String>> = listOf(
@@ -416,3 +465,5 @@ internal class SipWsClient(private val cfg: Config) {
 
     private fun randToken() = UUID.randomUUID().toString().replace("-", "").substring(0, 12)
 }
+
+private val CONTACT_HOST = java.util.UUID.randomUUID().toString().replace("-", "").take(12) + ".invalid"

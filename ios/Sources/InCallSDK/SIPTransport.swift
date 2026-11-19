@@ -43,12 +43,15 @@ protocol SIPTransportEvents: AnyObject {
     func transport(qualityDidUpdate quality: CallQuality, callId: String)
     func transport(messageFrom sipUser: String, text: String?, location: SharedLocation?, messageId: String)
     func transport(messageStatusDidChange messageId: String, status: MessageStatus)
+    /// A photo or file arrived.
+    func transport(attachmentFrom sipUser: String, attachment: Attachment, messageId: String)
     func transport(didFail error: InCallError)
     /// An invitation into a 3-way call (room = the conference to dial); `move` = follow the current call there.
     func transport(conferenceInviteFrom sipUser: String, room: String, move: Bool, with: [String])
 }
 
 extension SIPTransportEvents {
+    func transport(attachmentFrom sipUser: String, attachment: Attachment, messageId: String) {}
     func transport(conferenceInviteFrom sipUser: String, room: String, move: Bool, with: [String]) {}
 }
 
@@ -80,4 +83,9 @@ final class StubSIPTransport: SIPTransport {
     func sendMessage(to sipUser: String, text: String?, location: SharedLocation?) async throws -> String { throw notImplemented }
     func setTyping(_ typing: Bool, to sipUser: String) async {}
     func sendSignal(to sipUser: String, json: String) async throws { throw notImplemented }
+}
+
+extension SIPTransport {
+    /// Drop the signalling connection (the network changed); the client reconnects.
+    func dropConnection() {}
 }

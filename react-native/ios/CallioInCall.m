@@ -18,6 +18,7 @@ RCT_EXTERN_METHOD(setMuted:(BOOL)muted resolve:(RCTPromiseResolveBlock)resolve r
 RCT_EXTERN_METHOD(setHold:(BOOL)held resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(sendDtmf:(NSString *)tone resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(setAudioRoute:(NSString *)route resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(sendFile:(NSString *)to base64:(NSString *)base64 name:(NSString *)name type:(NSString *)type resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(sendText:(NSString *)to text:(NSString *)text resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(sendLocation:(NSString *)to lat:(double)lat lng:(double)lng label:(NSString *)label resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(setTyping:(NSString *)to typing:(BOOL)typing resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject)
